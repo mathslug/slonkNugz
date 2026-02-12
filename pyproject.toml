@@ -1,0 +1,11 @@
+[project]
+name = "kalshi-arb"
+version = "0.1.0"
+description = "Kalshi cross-market arbitrage checker for French Open / Grand Slam tennis markets"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.79.0",
+    "python-dotenv>=1.2.1",
+    "requests>=2.32.5",
+]
