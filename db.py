@@ -137,7 +137,7 @@ def get_connection(db_path: str = "kalshi_arb.db") -> sqlite3.Connection:
     conn.executescript(SCHEMA_SQL)
     conn.executemany(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-        [("buffer_bps", "100"), ("borrow_rate_bps", "600")],
+        [("buffer_bps", "50"), ("borrow_rate_bps", "400")],
     )
     conn.commit()
     return conn
@@ -296,24 +296,23 @@ def bulk_upsert_pair_results(
 
 def _compute_yield(
     cost: float | None,
-    expiration_a: str | None,
-    expiration_b: str | None,
+    antecedent_expiration: str | None,
 ) -> tuple[float | None, int | None]:
     """Effective annual yield and days to maturity for an arb pair.
 
-    Settlement date is the later of the two expirations.
+    Settlement date is the antecedent expiration. By that date, the arb is
+    guaranteed to resolve: either the antecedent is NO (NO leg pays $1) or
+    YES (implication fires, YES leg is determined and settles).
     Returns (yield, days) or (None, None).
     """
     if cost is None or cost <= 0:
         return None, None
-    if not expiration_a or not expiration_b:
+    if not antecedent_expiration:
         return None, None
     try:
-        exp_a = datetime.fromisoformat(expiration_a.replace("Z", "+00:00")).date()
-        exp_b = datetime.fromisoformat(expiration_b.replace("Z", "+00:00")).date()
+        settlement = datetime.fromisoformat(antecedent_expiration.replace("Z", "+00:00")).date()
     except (ValueError, AttributeError):
         return None, None
-    settlement = max(exp_a, exp_b)
     days = (settlement - date.today()).days
     if days <= 0:
         return None, None
@@ -439,8 +438,8 @@ def compute_hurdle_yield(conn: sqlite3.Connection, days: int | None) -> float | 
     """
     if days is None or days <= 0:
         return None
-    buffer = int(get_setting(conn, "buffer_bps", "100")) / 10000
-    borrow_rate = int(get_setting(conn, "borrow_rate_bps", "600")) / 10000
+    buffer = int(get_setting(conn, "buffer_bps", "50")) / 10000
+    borrow_rate = int(get_setting(conn, "borrow_rate_bps", "400")) / 10000
     latest = get_latest_yields(conn)
     treasury_rate = interpolate_treasury_rate(latest, days) if latest else None
     if treasury_rate is None:
@@ -502,7 +501,7 @@ def get_pairs_for_review(conn: sqlite3.Connection, status: str) -> list[dict]:
         else:
             d["arb_cost"] = None
         d["annualized_yield"], d["days_to_maturity"] = _compute_yield(
-            d["arb_cost"], d.get("antecedent_expiration"), d.get("consequent_expiration"),
+            d["arb_cost"], d.get("antecedent_expiration"),
         )
         d["hurdle_yield"] = compute_hurdle_yield(conn, d["days_to_maturity"])
         if d["annualized_yield"] is not None and d["hurdle_yield"] is not None:

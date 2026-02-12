@@ -197,23 +197,21 @@ def evaluate_pair(pair: dict, hurdle_yield: float, max_n: int = 500) -> dict:
     ant_ticker = pair["antecedent_ticker"]
     con_ticker = pair["consequent_ticker"]
 
-    # Compute days to maturity
+    # Compute days to maturity (antecedent date = payoff date; by then the arb
+    # is guaranteed to resolve regardless of outcome direction)
     ant_exp = pair.get("antecedent_expiration")
-    con_exp = pair.get("consequent_expiration")
-    if not ant_exp or not con_exp:
+    if not ant_exp:
         return {"pair_id": pair_id, "recommendation": "pass", "n_contracts": 0,
                 "annualized_yield": None, "hurdle_yield": hurdle_yield,
                 "excess_yield": None, "days_to_maturity": None}
 
     try:
-        exp_a = datetime.fromisoformat(ant_exp.replace("Z", "+00:00")).date()
-        exp_b = datetime.fromisoformat(con_exp.replace("Z", "+00:00")).date()
+        settlement = datetime.fromisoformat(ant_exp.replace("Z", "+00:00")).date()
     except (ValueError, AttributeError):
         return {"pair_id": pair_id, "recommendation": "pass", "n_contracts": 0,
                 "annualized_yield": None, "hurdle_yield": hurdle_yield,
                 "excess_yield": None, "days_to_maturity": None}
 
-    settlement = max(exp_a, exp_b)
     days = (settlement - date.today()).days
     if days <= 0:
         return {"pair_id": pair_id, "recommendation": "pass", "n_contracts": 0,
