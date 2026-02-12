@@ -688,7 +688,7 @@ def main() -> None:
 
     # ── Generate candidates from DB ──────────────────────────────────────
     print("\nGrouping markets by entity (from DB)...")
-    groups = db_mod.get_tickers_by_entity(conn)
+    groups = db_mod.get_tickers_by_entity(conn, min_volume=args.min_volume)
     print(f"  Entities in 2+ series: {len(groups)}")
 
     if not groups:

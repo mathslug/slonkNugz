@@ -219,7 +219,7 @@ def record_prices(conn: sqlite3.Connection, markets: list[dict]) -> int:
     return len(rows)
 
 
-def get_tickers_by_entity(conn: sqlite3.Connection) -> dict[str, list[dict]]:
+def get_tickers_by_entity(conn: sqlite3.Connection, min_volume: int = 0) -> dict[str, list[dict]]:
     """Group active tickers by yes_sub_title where entity spans 2+ series.
 
     Returns dict mapping entity -> list of market dicts (matching the format
@@ -229,7 +229,9 @@ def get_tickers_by_entity(conn: sqlite3.Connection) -> dict[str, list[dict]]:
         """SELECT ticker, series_ticker, event_ticker, title, yes_sub_title,
                   rules_primary, expected_expiration_time, close_time,
                   last_price_dollars, yes_ask_dollars, no_ask_dollars, volume
-           FROM tickers WHERE is_active = 1 AND yes_sub_title != ''"""
+           FROM tickers WHERE is_active = 1 AND yes_sub_title != ''
+                  AND volume >= ?""",
+        (min_volume,),
     ).fetchall()
 
     groups: dict[str, list[dict]] = {}
