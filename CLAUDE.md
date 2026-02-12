@@ -213,9 +213,7 @@ Deployed to a single Digital Ocean droplet (Debian 12) at `mathslug.me`.
 | Time ET | UTC | Job |
 |---------|-----|-----|
 | 6:00 AM | 10:00 | `fetch_yields.py` -- Treasury yield curve |
-| 6:30 AM | 10:30 | `scan.py --from-db` -- scan for new pairs |
-| 7:00 AM | 11:00 | `evaluate.py` -- evaluate confirmed pairs |
-| 7:30 AM | 11:30 | `evaluate.py --mode high` -- evaluate high-confidence pairs |
+| 6:30 AM | 10:30 | `scan.py` && `evaluate.py` && `evaluate.py --mode high` (chained) |
 | Sun 3 AM | Sun 7:00 | DB backup to `/var/lib/kalshi-arb/backups/` |
 
 ### Email notifications
