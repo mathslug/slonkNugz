@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Pair #{{ pair.id }} - Kalshi Arb{% endblock %}
+{% block content %}
+<h2>Pair #{{ pair.id }}</h2>
+
+<div class="grid">
+  <article>
+    <header>Subset (more specific)</header>
+    <p><strong>{{ pair.subset_ticker }}</strong></p>
+    <p>{{ pair.subset_title }}</p>
+    <p>
+      <small>Series: {{ pair.subset_series }}</small><br>
+      <small>Entity: {{ pair.subset_entity }}</small><br>
+      <small>Expiration: {{ pair.subset_expiration or 'N/A' }}</small><br>
+      <small>Volume: {{ pair.subset_volume or 0 }}</small>
+    </p>
+    <p>
+      YES ask: {{ pair.subset_yes_ask or 'N/A' }}<br>
+      NO ask: {{ pair.subset_no_ask or 'N/A' }}<br>
+      Last: {{ pair.subset_last_price or 'N/A' }}
+    </p>
+    <p><a href="https://kalshi.com/markets/{{ pair.subset_event_ticker }}" target="_blank">View on Kalshi</a></p>
+    <details>
+      <summary>Rules</summary>
+      <small>{{ pair.subset_rules }}</small>
+    </details>
+  </article>
+
+  <article>
+    <header>Superset (broader)</header>
+    <p><strong>{{ pair.superset_ticker }}</strong></p>
+    <p>{{ pair.superset_title }}</p>
+    <p>
+      <small>Series: {{ pair.superset_series }}</small><br>
+      <small>Entity: {{ pair.superset_entity }}</small><br>
+      <small>Expiration: {{ pair.superset_expiration or 'N/A' }}</small><br>
+      <small>Volume: {{ pair.superset_volume or 0 }}</small>
+    </p>
+    <p>
+      YES ask: {{ pair.superset_yes_ask or 'N/A' }}<br>
+      NO ask: {{ pair.superset_no_ask or 'N/A' }}<br>
+      Last: {{ pair.superset_last_price or 'N/A' }}
+    </p>
+    <p><a href="https://kalshi.com/markets/{{ pair.superset_event_ticker }}" target="_blank">View on Kalshi</a></p>
+    <details>
+      <summary>Rules</summary>
+      <small>{{ pair.superset_rules }}</small>
+    </details>
+  </article>
+</div>
+
+<article>
+  <header>LLM Screening</header>
+  <p>
+    <strong>Confidence:</strong> {{ pair.confidence }}<br>
+    <strong>Model:</strong> {{ pair.llm_model or 'N/A' }}<br>
+    <strong>Screened:</strong> {{ pair.screened_at or 'N/A' }}
+  </p>
+  <p><strong>Reasoning:</strong> {{ pair.reasoning or 'N/A' }}</p>
+
+  <p>
+    <strong>Strategy:</strong> Buy NO on subset + YES on superset<br>
+    <strong>Latest arb cost:</strong>
+    {% if pair.arb_cost is not none %}
+      ${{ "%.4f"|format(pair.arb_cost) }}
+      {% if pair.arb_cost < 1.0 %}
+        <mark>PROFITABLE (< $1.00)</mark>
+      {% else %}
+        (need < $1.00)
+      {% endif %}
+    {% else %}
+      N/A
+    {% endif %}
+  </p>
+</article>
+
+<article>
+  <header>Human Review</header>
+  {% if pair.human_review %}
+    <p>
+      <strong>Decision:</strong> {{ pair.human_review }}<br>
+      <strong>Reviewed at:</strong> {{ pair.reviewed_at }}
+    </p>
+  {% endif %}
+
+  <form method="post" action="/pair/{{ pair.id }}/review">
+    <div class="grid">
+      <button type="submit" name="decision" value="confirmed">Confirm</button>
+      <button type="submit" name="decision" value="rejected" class="secondary">Reject</button>
+    </div>
+  </form>
+</article>
+
+<p><a href="/review">&larr; Back to review queue</a></p>
+{% endblock %}

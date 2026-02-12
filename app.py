@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Flask webapp for reviewing Kalshi arbitrage candidate pairs."""
+
+import os
+
+from flask import Flask, redirect, render_template, request, url_for
+
+import db as db_mod
+
+DB_PATH = os.environ.get("KALSHI_DB", "kalshi_arb.db")
+
+
+def create_app(db_path: str = DB_PATH) -> Flask:
+    app = Flask(__name__)
+    app.config["DB_PATH"] = db_path
+
+    def get_conn():
+        return db_mod.get_connection(app.config["DB_PATH"])
+
+    @app.route("/")
+    def index():
+        conn = get_conn()
+        stats = db_mod.get_pair_stats(conn)
+        conn.close()
+        return render_template("base.html", page="dashboard", stats=stats)
+
+    @app.route("/review")
+    def review():
+        conn = get_conn()
+        pairs = db_mod.get_pairs_for_review(conn, "unreviewed")
+        conn.close()
+        return render_template("review.html", pairs=pairs, status="unreviewed", title="Unreviewed Pairs")
+
+    @app.route("/reviewed")
+    def reviewed():
+        conn = get_conn()
+        confirmed = db_mod.get_pairs_for_review(conn, "confirmed")
+        rejected = db_mod.get_pairs_for_review(conn, "rejected")
+        conn.close()
+        return render_template("review.html", pairs=confirmed + rejected, status="reviewed", title="Reviewed Pairs")
+
+    @app.route("/pair/<int:pair_id>")
+    def pair_detail(pair_id):
+        conn = get_conn()
+        pair = db_mod.get_pair_detail(conn, pair_id)
+        conn.close()
+        if not pair:
+            return "Pair not found", 404
+        return render_template("detail.html", pair=pair)
+
+    @app.route("/pair/<int:pair_id>/review", methods=["POST"])
+    def submit_review(pair_id):
+        decision = request.form.get("decision")
+        if decision not in ("confirmed", "rejected"):
+            return "Invalid decision", 400
+        conn = get_conn()
+        db_mod.set_review(conn, pair_id, decision)
+        conn.close()
+        next_url = request.form.get("next") or url_for("review")
+        return redirect(next_url)
+
+    return app
+
+
+if __name__ == "__main__":
+    app = create_app()
+    app.run(debug=True, port=5001)

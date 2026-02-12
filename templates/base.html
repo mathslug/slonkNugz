@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Kalshi Arb Scanner{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+</head>
+<body>
+  <nav class="container">
+    <ul>
+      <li><strong>Kalshi Arb</strong></li>
+    </ul>
+    <ul>
+      <li><a href="/">Dashboard</a></li>
+      <li><a href="/review">Review Queue</a></li>
+      <li><a href="/reviewed">Reviewed</a></li>
+    </ul>
+  </nav>
+
+  <main class="container">
+    {% block content %}
+    {% if page == "dashboard" %}
+    <h2>Dashboard</h2>
+    <div class="grid">
+      <article>
+        <header>Total Pairs</header>
+        <p style="font-size:2rem;text-align:center">{{ stats.total or 0 }}</p>
+      </article>
+      <article>
+        <header>Unreviewed</header>
+        <p style="font-size:2rem;text-align:center"><a href="/review">{{ stats.unreviewed or 0 }}</a></p>
+      </article>
+      <article>
+        <header>Confirmed</header>
+        <p style="font-size:2rem;text-align:center">{{ stats.confirmed or 0 }}</p>
+      </article>
+      <article>
+        <header>Rejected</header>
+        <p style="font-size:2rem;text-align:center">{{ stats.rejected or 0 }}</p>
+      </article>
+    </div>
+    <p>No relationship: {{ stats.no_relationship or 0 }}</p>
+    {% endif %}
+    {% endblock %}
+  </main>
+</body>
+</html>

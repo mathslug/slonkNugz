@@ -5,6 +5,9 @@ Scans Kalshi sports markets to discover pairs where one contract resolving YES
 logically guarantees another also resolves YES (e.g., winning the French Open
 implies winning a Grand Slam). Uses programmatic pre-filtering to narrow
 candidates, then Claude Haiku for implication checking.
+
+Results are persisted to a SQLite database for incremental scanning and human
+review via the companion Flask webapp (app.py).
 """
 
 import argparse
@@ -19,6 +22,7 @@ from itertools import combinations
 import requests
 from dotenv import load_dotenv
 
+import db as db_mod
 from kalshi import KALSHI_BASE
 
 load_dotenv()
@@ -290,7 +294,9 @@ def screen_pairs_with_llm(
     """Screen candidate pairs using an LLM for implication checking.
 
     Supports 'ollama' and 'anthropic' providers. Batches pairs and returns
-    confirmed + uncertain results.
+    ALL results (including confidence="none") so they can be stored in the DB
+    to avoid re-screening. Each result dict includes ticker_a/ticker_b from
+    the input pair.
     """
     call_fn = _call_ollama if provider == "ollama" else _call_anthropic
     results = []
@@ -309,16 +315,21 @@ def screen_pairs_with_llm(
             text = call_fn(prompt, model)
             log.debug("Batch %d raw response:\n%s", batch_num, text)
             batch_results = _extract_json(text)
-            for r in batch_results:
+            for i, r in enumerate(batch_results):
+                # Attach input pair tickers so DB can store the canonical pair
+                if i < len(batch):
+                    r["ticker_a"] = batch[i][0]["ticker"]
+                    r["ticker_b"] = batch[i][1]["ticker"]
+
                 if r.get("confidence") != "none" and r.get("subset_ticker") and r.get("superset_ticker"):
                     log.info("ACCEPTED: %s -> %s [%s] %s",
                              r.get("subset_ticker"), r.get("superset_ticker"),
                              r.get("confidence"), r.get("reasoning", ""))
-                    results.append(r)
                 else:
                     log.info("REJECTED: %s -> %s [%s] %s",
                              r.get("subset_ticker"), r.get("superset_ticker"),
                              r.get("confidence"), r.get("reasoning", ""))
+                results.append(r)
         except (json.JSONDecodeError, requests.RequestException, KeyError) as e:
             log.warning("Batch %d failed: %s", batch_num, e)
             print(f"    Warning: batch {batch_num} failed: {e}")
@@ -438,30 +449,6 @@ def print_summary(results: list[dict]) -> None:
             print(f"    Reasoning: {reasoning[:120]}")
 
 
-CACHE_FILE = "market_cache.json"
-
-
-def save_cache(markets: list[dict], pairs: list[tuple[dict, dict]], path: str = CACHE_FILE) -> None:
-    """Save fetched markets and candidate pairs to disk."""
-    data = {
-        "markets": markets,
-        "pairs": [{"a": a, "b": b} for a, b in pairs],
-    }
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-    print(f"Cache written to {path} ({len(markets)} markets, {len(pairs)} pairs)")
-
-
-def load_cache(path: str = CACHE_FILE) -> tuple[list[dict], list[tuple[dict, dict]]]:
-    """Load markets and candidate pairs from disk cache."""
-    with open(path) as f:
-        data = json.load(f)
-    markets = data["markets"]
-    pairs = [(p["a"], p["b"]) for p in data["pairs"]]
-    print(f"Loaded cache from {path} ({len(markets)} markets, {len(pairs)} pairs)")
-    return markets, pairs
-
-
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
@@ -482,18 +469,22 @@ def main() -> None:
         "--min-volume", type=int, default=0,
         help="exclude markets below this volume (default: 0)",
     )
-    # Cache options
+    # DB options
     parser.add_argument(
-        "--fetch-only", action="store_true",
-        help="fetch markets and save cache, skip LLM screening",
+        "--db", default="kalshi_arb.db",
+        help="SQLite database path (default: kalshi_arb.db)",
     )
     parser.add_argument(
-        "--from-cache", action="store_true",
-        help="load markets from cache instead of fetching",
+        "--from-db", action="store_true",
+        help="skip fetching, use tickers already in DB",
     )
     parser.add_argument(
-        "--cache-file", default=CACHE_FILE,
-        help=f"cache file path (default: {CACHE_FILE})",
+        "--rescan", action="store_true",
+        help="re-screen all pairs even if already in DB",
+    )
+    parser.add_argument(
+        "--max-pairs", type=int, default=None,
+        help="max number of new pairs to screen per run (caps LLM calls)",
     )
     # LLM options
     parser.add_argument(
@@ -532,35 +523,49 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    # ── Fetch or load cache ──────────────────────────────────────────────
-    if args.from_cache:
-        markets, pairs = load_cache(args.cache_file)
-    else:
+    # ── Database setup ────────────────────────────────────────────────────
+    conn = db_mod.get_connection(args.db)
+
+    # ── Fetch or use DB ──────────────────────────────────────────────────
+    if not args.from_db:
         markets = fetch_markets(args.category, args.filter, args.min_volume)
         if not markets:
             print("No open markets found.")
             sys.exit(0)
 
-        print("\nGrouping markets by entity...")
-        groups = group_by_entity(markets)
-        print(f"  Entities in 2+ series: {len(groups)}")
+        new, updated = db_mod.upsert_tickers(conn, markets)
+        recorded = db_mod.record_prices(conn, markets)
+        print(f"  DB: {new} new tickers, {updated} updated, {recorded} price snapshots")
 
-        if not groups:
-            print("No cross-series entities found. Nothing to scan.")
-            sys.exit(0)
+    # ── Generate candidates from DB ──────────────────────────────────────
+    print("\nGrouping markets by entity (from DB)...")
+    groups = db_mod.get_tickers_by_entity(conn)
+    print(f"  Entities in 2+ series: {len(groups)}")
 
-        pairs = generate_candidate_pairs(groups)
-        print(f"  Cross-series candidate pairs: {len(pairs)}")
+    if not groups:
+        print("No cross-series entities found. Nothing to scan.")
+        sys.exit(0)
 
-        # Always save cache after fetching
-        save_cache(markets, pairs, args.cache_file)
+    all_pairs = generate_candidate_pairs(groups)
+    print(f"  Cross-series candidate pairs: {len(all_pairs)}")
 
-        if args.fetch_only:
-            return
+    # ── Filter to unscreened pairs ───────────────────────────────────────
+    if not args.rescan:
+        screened = db_mod.get_screened_pair_keys(conn)
+        pairs = [p for p in all_pairs if db_mod.sorted_key(p) not in screened]
+        skipped = len(all_pairs) - len(pairs)
+        if skipped:
+            print(f"  Skipping {skipped} already-screened pairs")
+    else:
+        pairs = all_pairs
 
     if not pairs:
-        print("No candidate pairs to screen.")
+        print("No new pairs to screen.")
         sys.exit(0)
+
+    if args.max_pairs and len(pairs) > args.max_pairs:
+        print(f"  Capping to {args.max_pairs} pairs (--max-pairs)")
+        pairs = pairs[:args.max_pairs]
 
     # ── LLM screening ────────────────────────────────────────────────────
     model = args.model or (
@@ -569,19 +574,30 @@ def main() -> None:
     )
     batch_size = args.batch_size or (12 if args.provider == "anthropic" else 1)
     print(f"\nScreening {len(pairs)} pairs with {args.provider}/{model} (batch_size={batch_size})...")
-    results = screen_pairs_with_llm(pairs, args.provider, model, batch_size)
-    print(f"  Pairs with implication: {len(results)}")
+    all_results = screen_pairs_with_llm(pairs, args.provider, model, batch_size)
+
+    # ── Store all results in DB ──────────────────────────────────────────
+    stored = db_mod.bulk_upsert_pair_results(conn, all_results, model)
+    print(f"  DB: {stored} pair results stored")
+
+    # ── Filter to confirmed for output ───────────────────────────────────
+    confirmed = [r for r in all_results if r.get("confidence") != "none" and r.get("subset_ticker") and r.get("superset_ticker")]
+    print(f"  Pairs with implication: {len(confirmed)}")
 
     # ── Enrich with prices ───────────────────────────────────────────────
     print("\nEnriching with current prices...")
-    markets_by_ticker = {m["ticker"]: m for m in markets}
-    results = enrich_with_prices(results, markets_by_ticker)
+    # Build ticker lookup from DB
+    all_tickers = conn.execute("SELECT * FROM tickers").fetchall()
+    markets_by_ticker = {dict(r)["ticker"]: dict(r) for r in all_tickers}
+    confirmed = enrich_with_prices(confirmed, markets_by_ticker)
 
     # ── Output ───────────────────────────────────────────────────────────
-    write_results(results, args.output)
+    write_results(confirmed, args.output)
     if args.csv:
-        write_csv(results, args.csv)
-    print_summary(results)
+        write_csv(confirmed, args.csv)
+    print_summary(confirmed)
+
+    conn.close()
 
 
 if __name__ == "__main__":

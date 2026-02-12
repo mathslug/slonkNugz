@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - Kalshi Arb{% endblock %}
+{% block content %}
+<h2>{{ title }} ({{ pairs|length }})</h2>
+
+{% if not pairs %}
+<p>No pairs to show.</p>
+{% else %}
+<figure>
+<table>
+  <thead>
+    <tr>
+      <th>Subset</th>
+      <th>Superset</th>
+      <th>Confidence</th>
+      <th>Latest Arb Cost</th>
+      <th>Reasoning</th>
+      {% if status == "reviewed" %}<th>Review</th>{% endif %}
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in pairs|sort(attribute='arb_cost') if p.arb_cost is not none %}
+    <tr>
+      <td>
+        <a href="https://kalshi.com/markets/{{ p.subset_event_ticker }}" target="_blank">{{ p.subset_ticker }}</a>
+        <br><small>{{ p.subset_title }}</small>
+      </td>
+      <td>
+        <a href="https://kalshi.com/markets/{{ p.superset_event_ticker }}" target="_blank">{{ p.superset_ticker }}</a>
+        <br><small>{{ p.superset_title }}</small>
+      </td>
+      <td>{{ p.confidence }}</td>
+      <td{% if p.arb_cost is not none and p.arb_cost < 1.0 %} style="color:green;font-weight:bold"{% endif %}>
+        {% if p.arb_cost is not none %}${{ "%.4f"|format(p.arb_cost) }}{% else %}N/A{% endif %}
+      </td>
+      <td><small>{{ p.reasoning[:80] if p.reasoning else '' }}{% if p.reasoning and p.reasoning|length > 80 %}...{% endif %}</small></td>
+      {% if status == "reviewed" %}<td>{{ p.human_review }}</td>{% endif %}
+      <td>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:stretch;min-width:80px">
+        <a href="/pair/{{ p.id }}" role="button" class="outline" style="padding:4px 8px;font-size:0.8rem;text-align:center">Detail</a>
+        {% if status == "unreviewed" %}
+        <form method="post" action="/pair/{{ p.id }}/review">
+          <input type="hidden" name="next" value="/review">
+          <button type="submit" name="decision" value="confirmed" style="padding:4px 8px;font-size:0.8rem;margin:0;width:100%">Confirm</button>
+        </form>
+        <form method="post" action="/pair/{{ p.id }}/review">
+          <input type="hidden" name="next" value="/review">
+          <button type="submit" name="decision" value="rejected" class="secondary" style="padding:4px 8px;font-size:0.8rem;margin:0;width:100%">Reject</button>
+        </form>
+        {% endif %}
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+    {% for p in pairs if p.arb_cost is none %}
+    <tr>
+      <td>
+        <a href="https://kalshi.com/markets/{{ p.subset_event_ticker }}" target="_blank">{{ p.subset_ticker }}</a>
+        <br><small>{{ p.subset_title }}</small>
+      </td>
+      <td>
+        <a href="https://kalshi.com/markets/{{ p.superset_event_ticker }}" target="_blank">{{ p.superset_ticker }}</a>
+        <br><small>{{ p.superset_title }}</small>
+      </td>
+      <td>{{ p.confidence }}</td>
+      <td>N/A</td>
+      <td><small>{{ p.reasoning[:80] if p.reasoning else '' }}{% if p.reasoning and p.reasoning|length > 80 %}...{% endif %}</small></td>
+      {% if status == "reviewed" %}<td>{{ p.human_review }}</td>{% endif %}
+      <td>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:stretch;min-width:80px">
+        <a href="/pair/{{ p.id }}" role="button" class="outline" style="padding:4px 8px;font-size:0.8rem;text-align:center">Detail</a>
+        {% if status == "unreviewed" %}
+        <form method="post" action="/pair/{{ p.id }}/review">
+          <input type="hidden" name="next" value="/review">
+          <button type="submit" name="decision" value="confirmed" style="padding:4px 8px;font-size:0.8rem;margin:0;width:100%">Confirm</button>
+        </form>
+        <form method="post" action="/pair/{{ p.id }}/review">
+          <input type="hidden" name="next" value="/review">
+          <button type="submit" name="decision" value="rejected" class="secondary" style="padding:4px 8px;font-size:0.8rem;margin:0;width:100%">Reject</button>
+        </form>
+        {% endif %}
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</figure>
+{% endif %}
+{% endblock %}
