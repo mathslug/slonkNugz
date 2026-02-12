@@ -5,46 +5,46 @@
 
 <div class="grid">
   <article>
-    <header>Subset (more specific)</header>
-    <p><strong>{{ pair.subset_ticker }}</strong></p>
-    <p>{{ pair.subset_title }}</p>
+    <header>Antecedent (more specific)</header>
+    <p><strong>{{ pair.antecedent_ticker }}</strong></p>
+    <p>{{ pair.antecedent_title }}</p>
     <p>
-      <small>Series: {{ pair.subset_series }}</small><br>
-      <small>Entity: {{ pair.subset_entity }}</small><br>
-      <small>Expiration: {{ pair.subset_expiration or 'N/A' }}</small><br>
-      <small>Volume: {{ pair.subset_volume or 0 }}</small>
+      <small>Series: {{ pair.antecedent_series }}</small><br>
+      <small>Entity: {{ pair.antecedent_entity }}</small><br>
+      <small>Expiration: {{ pair.antecedent_expiration or 'N/A' }}</small><br>
+      <small>Volume: {{ pair.antecedent_volume or 0 }}</small>
     </p>
     <p>
-      YES ask: {{ pair.subset_yes_ask or 'N/A' }}<br>
-      NO ask: {{ pair.subset_no_ask or 'N/A' }}<br>
-      Last: {{ pair.subset_last_price or 'N/A' }}
+      YES ask: {{ pair.antecedent_yes_ask or 'N/A' }}<br>
+      NO ask: {{ pair.antecedent_no_ask or 'N/A' }}<br>
+      Last: {{ pair.antecedent_last_price or 'N/A' }}
     </p>
-    <p><a href="https://kalshi.com/markets/{{ pair.subset_event_ticker }}" target="_blank">View on Kalshi</a></p>
+    <p><a href="https://kalshi.com/markets/{{ pair.antecedent_event_ticker }}" target="_blank">View on Kalshi</a></p>
     <details>
       <summary>Rules</summary>
-      <small>{{ pair.subset_rules }}</small>
+      <small>{{ pair.antecedent_rules }}</small>
     </details>
   </article>
 
   <article>
-    <header>Superset (broader)</header>
-    <p><strong>{{ pair.superset_ticker }}</strong></p>
-    <p>{{ pair.superset_title }}</p>
+    <header>Consequent (broader)</header>
+    <p><strong>{{ pair.consequent_ticker }}</strong></p>
+    <p>{{ pair.consequent_title }}</p>
     <p>
-      <small>Series: {{ pair.superset_series }}</small><br>
-      <small>Entity: {{ pair.superset_entity }}</small><br>
-      <small>Expiration: {{ pair.superset_expiration or 'N/A' }}</small><br>
-      <small>Volume: {{ pair.superset_volume or 0 }}</small>
+      <small>Series: {{ pair.consequent_series }}</small><br>
+      <small>Entity: {{ pair.consequent_entity }}</small><br>
+      <small>Expiration: {{ pair.consequent_expiration or 'N/A' }}</small><br>
+      <small>Volume: {{ pair.consequent_volume or 0 }}</small>
     </p>
     <p>
-      YES ask: {{ pair.superset_yes_ask or 'N/A' }}<br>
-      NO ask: {{ pair.superset_no_ask or 'N/A' }}<br>
-      Last: {{ pair.superset_last_price or 'N/A' }}
+      YES ask: {{ pair.consequent_yes_ask or 'N/A' }}<br>
+      NO ask: {{ pair.consequent_no_ask or 'N/A' }}<br>
+      Last: {{ pair.consequent_last_price or 'N/A' }}
     </p>
-    <p><a href="https://kalshi.com/markets/{{ pair.superset_event_ticker }}" target="_blank">View on Kalshi</a></p>
+    <p><a href="https://kalshi.com/markets/{{ pair.consequent_event_ticker }}" target="_blank">View on Kalshi</a></p>
     <details>
       <summary>Rules</summary>
-      <small>{{ pair.superset_rules }}</small>
+      <small>{{ pair.consequent_rules }}</small>
     </details>
   </article>
 </div>
@@ -59,14 +59,41 @@
   <p><strong>Reasoning:</strong> {{ pair.reasoning or 'N/A' }}</p>
 
   <p>
-    <strong>Strategy:</strong> Buy NO on subset + YES on superset<br>
-    <strong>Latest arb cost:</strong>
-    {% if pair.arb_cost is not none %}
-      ${{ "%.4f"|format(pair.arb_cost) }}
-      {% if pair.arb_cost < 1.0 %}
-        <mark>PROFITABLE (< $1.00)</mark>
+    <strong>Strategy:</strong> Buy NO on antecedent + YES on consequent<br>
+    <strong>Yield:</strong>
+    {% if pair.annualized_yield is not none %}
+      {{ "%.2f"|format(pair.annualized_yield * 100) }}%
+      {% if pair.annualized_yield > 0 %}
+        <mark>PROFITABLE</mark>
       {% else %}
-        (need < $1.00)
+        (negative yield)
+      {% endif %}
+    {% else %}
+      N/A
+    {% endif %}
+    <br>
+    <strong>Cost:</strong>
+    {% if pair.arb_cost is not none %}${{ "%.4f"|format(pair.arb_cost) }}{% else %}N/A{% endif %}
+    <br>
+    <strong>Days to maturity:</strong>
+    {% if pair.days_to_maturity is not none %}{{ pair.days_to_maturity }}{% else %}N/A{% endif %}
+    <br>
+    <strong>Hurdle yield:</strong>
+    {% if pair.hurdle_yield is not none %}
+      {{ "%.2f"|format(pair.hurdle_yield * 100) }}%
+    {% else %}
+      N/A
+    {% endif %}
+    <br>
+    <strong>Excess yield:</strong>
+    {% if pair.excess_yield is not none %}
+      <span style="color:{{ 'green' if pair.excess_yield > 0 else 'red' }};font-weight:bold">
+        {{ "%+.2f"|format(pair.excess_yield * 100) }}%
+      </span>
+      {% if pair.excess_yield > 0 %}
+        <mark>PROFITABLE</mark>
+      {% else %}
+        <mark style="background-color:#f88">BELOW HURDLE</mark>
       {% endif %}
     {% else %}
       N/A

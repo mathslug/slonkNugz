@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kalshi cross-market subset arbitrage scanner.
+"""Kalshi cross-market arbitrage scanner.
 
 Scans Kalshi sports markets to discover pairs where one contract resolving YES
 logically guarantees another also resolves YES (e.g., winning the French Open
@@ -149,7 +149,7 @@ def group_by_entity(markets: list[dict]) -> dict[str, list[dict]]:
     """Group markets by yes_sub_title (entity).
 
     Only keeps entities that appear in 2+ different series, since same-series
-    markets can't form subset relationships.
+    markets can't form implication relationships.
     """
     groups: dict[str, list[dict]] = {}
     for m in markets:
@@ -172,7 +172,7 @@ def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, 
     """Generate cross-series candidate pairs for each entity.
 
     Only pairs markets from different series — same-series pairs are never
-    subset relationships.
+    implication relationships.
     """
     pairs = []
     for entity, entity_markets in groups.items():
@@ -186,9 +186,9 @@ def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, 
 
 SCREENING_PROMPT = """\
 /no_think
-You are analyzing Kalshi prediction market contracts to find "subset" relationships.
+You are analyzing Kalshi prediction market contracts to find implication relationships.
 
-A subset relationship exists when one contract resolving YES **logically guarantees** another also resolves YES. For example:
+An implication relationship exists when one contract resolving YES **logically guarantees** another also resolves YES. For example:
 - "Player X wins the French Open" YES → "Player X wins a Grand Slam" YES (winning FO is one way to win a GS)
 - "Team Y wins the Super Bowl" YES → "Team Y makes the playoffs" YES
 
@@ -202,15 +202,15 @@ IMPORTANT:
 Return a JSON object (no markdown fencing) with a "results" key containing an array with one object per pair:
 {"results": [
   {
-    "subset_ticker": "..." or null,
-    "superset_ticker": "..." or null,
+    "antecedent_ticker": "..." or null,
+    "consequent_ticker": "..." or null,
     "confidence": "high" | "medium" | "low" | "none",
     "reasoning": "short explanation"
   }
 ]}
 
-"confidence" of "none" means no subset relationship exists — set subset_ticker and superset_ticker to null.
-"subset_ticker" is the MORE SPECIFIC market (e.g., "wins French Open"), "superset_ticker" is the BROADER market (e.g., "wins a Grand Slam").
+"confidence" of "none" means no implication relationship exists — set antecedent_ticker and consequent_ticker to null.
+"antecedent_ticker" is the MORE SPECIFIC market (e.g., "wins French Open"), "consequent_ticker" is the BROADER market (e.g., "wins a Grand Slam").
 
 CANDIDATE PAIRS:
 """
@@ -280,7 +280,7 @@ def _extract_json(text: str) -> list[dict]:
             if isinstance(parsed.get(key), list):
                 return parsed[key]
         # If it's a single result dict, wrap it
-        if "subset_ticker" in parsed:
+        if "antecedent_ticker" in parsed:
             return [parsed]
     return parsed
 
@@ -321,13 +321,13 @@ def screen_pairs_with_llm(
                     r["ticker_a"] = batch[i][0]["ticker"]
                     r["ticker_b"] = batch[i][1]["ticker"]
 
-                if r.get("confidence") != "none" and r.get("subset_ticker") and r.get("superset_ticker"):
+                if r.get("confidence") != "none" and r.get("antecedent_ticker") and r.get("consequent_ticker"):
                     log.info("ACCEPTED: %s -> %s [%s] %s",
-                             r.get("subset_ticker"), r.get("superset_ticker"),
+                             r.get("antecedent_ticker"), r.get("consequent_ticker"),
                              r.get("confidence"), r.get("reasoning", ""))
                 else:
                     log.info("REJECTED: %s -> %s [%s] %s",
-                             r.get("subset_ticker"), r.get("superset_ticker"),
+                             r.get("antecedent_ticker"), r.get("consequent_ticker"),
                              r.get("confidence"), r.get("reasoning", ""))
                 results.append(r)
         except (json.JSONDecodeError, requests.RequestException, KeyError) as e:
@@ -348,34 +348,34 @@ def enrich_with_prices(results: list[dict], markets_by_ticker: dict[str, dict]) 
     """Add current ask prices and compute top-of-book arb cost for each pair."""
     enriched = []
     for r in results:
-        subset_ticker = r.get("subset_ticker")
-        superset_ticker = r.get("superset_ticker")
-        if not subset_ticker or not superset_ticker:
+        antecedent_ticker = r.get("antecedent_ticker")
+        consequent_ticker = r.get("consequent_ticker")
+        if not antecedent_ticker or not consequent_ticker:
             enriched.append(r)
             continue
 
-        sub_market = markets_by_ticker.get(subset_ticker, {})
-        sup_market = markets_by_ticker.get(superset_ticker, {})
+        ant_market = markets_by_ticker.get(antecedent_ticker, {})
+        con_market = markets_by_ticker.get(consequent_ticker, {})
 
-        # Always: buy NO on subset, YES on superset
-        sub_ask = sub_market.get("no_ask_dollars")
-        sup_ask = sup_market.get("yes_ask_dollars")
+        # Always: buy NO on antecedent, YES on consequent
+        ant_ask = ant_market.get("no_ask_dollars")
+        con_ask = con_market.get("yes_ask_dollars")
 
-        if sub_ask is not None and sup_ask is not None:
-            sub_ask = float(sub_ask)
-            sup_ask = float(sup_ask)
-            arb_cost = sub_ask + sup_ask
-            r["subset_ask"] = sub_ask
-            r["superset_ask"] = sup_ask
+        if ant_ask is not None and con_ask is not None:
+            ant_ask = float(ant_ask)
+            con_ask = float(con_ask)
+            arb_cost = ant_ask + con_ask
+            r["antecedent_ask"] = ant_ask
+            r["consequent_ask"] = con_ask
             r["arb_cost"] = round(arb_cost, 4)
         else:
-            r["subset_ask"] = sub_ask
-            r["superset_ask"] = sup_ask
+            r["antecedent_ask"] = ant_ask
+            r["consequent_ask"] = con_ask
             r["arb_cost"] = None
 
-        r["subset_title"] = sub_market.get("title", "")
-        r["superset_title"] = sup_market.get("title", "")
-        exp = sub_market.get("expected_expiration_time", "")
+        r["antecedent_title"] = ant_market.get("title", "")
+        r["consequent_title"] = con_market.get("title", "")
+        exp = ant_market.get("expected_expiration_time", "")
         r["payoff_date"] = exp[:10] if exp else None
         enriched.append(r)
 
@@ -387,8 +387,8 @@ def enrich_with_prices(results: list[dict], markets_by_ticker: dict[str, dict]) 
 
 CSV_COLUMNS = [
     "confidence", "arb_cost",
-    "subset_ticker", "subset_title", "subset_ask",
-    "superset_ticker", "superset_title", "superset_ask",
+    "antecedent_ticker", "antecedent_title", "antecedent_ask",
+    "consequent_ticker", "consequent_title", "consequent_ask",
     "payoff_date", "reasoning",
 ]
 
@@ -413,7 +413,7 @@ def write_csv(results: list[dict], path: str) -> None:
 def print_summary(results: list[dict]) -> None:
     """Print a terminal summary of scan results."""
     if not results:
-        print("\nNo subset relationships found.")
+        print("\nNo implication relationships found.")
         return
 
     confirmed = [r for r in results if r.get("confidence") in ("high", "medium")]
@@ -429,10 +429,10 @@ def print_summary(results: list[dict]) -> None:
         print(f"\n  {label}:")
         print(f"  {'─'*76}")
         for r in sorted(group, key=lambda x: x.get("arb_cost") or 999):
-            sub = r.get("subset_ticker", "?")
-            sup = r.get("superset_ticker", "?")
-            sub_title = r.get("subset_title", "")
-            sup_title = r.get("superset_title", "")
+            ant = r.get("antecedent_ticker", "?")
+            con = r.get("consequent_ticker", "?")
+            ant_title = r.get("antecedent_title", "")
+            con_title = r.get("consequent_title", "")
             cost = r.get("arb_cost")
             conf = r.get("confidence", "?")
             date = r.get("payoff_date", "?")
@@ -441,9 +441,9 @@ def print_summary(results: list[dict]) -> None:
             cost_str = f"${cost:.4f}" if cost is not None else "N/A"
             arb_flag = " << ARB" if cost is not None and cost < 1.0 else ""
 
-            print(f"\n    Subset:   {sub:<30} {sub_title}")
-            print(f"    Superset: {sup:<30} {sup_title}")
-            print(f"    Buy: no subset + yes superset")
+            print(f"\n    Antecedent: {ant:<30} {ant_title}")
+            print(f"    Consequent: {con:<30} {con_title}")
+            print(f"    Buy: no antecedent + yes consequent")
             print(f"    Cost: {cost_str}  (need < $1.00){arb_flag}")
             print(f"    Payoff date: {date}  |  Confidence: {conf}")
             print(f"    Reasoning: {reasoning[:120]}")
@@ -454,7 +454,7 @@ def print_summary(results: list[dict]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Scan Kalshi markets for subset arbitrage opportunities"
+        description="Scan Kalshi markets for arbitrage opportunities"
     )
     # Fetch options
     parser.add_argument(
@@ -581,7 +581,7 @@ def main() -> None:
     print(f"  DB: {stored} pair results stored")
 
     # ── Filter to confirmed for output ───────────────────────────────────
-    confirmed = [r for r in all_results if r.get("confidence") != "none" and r.get("subset_ticker") and r.get("superset_ticker")]
+    confirmed = [r for r in all_results if r.get("confidence") != "none" and r.get("antecedent_ticker") and r.get("consequent_ticker")]
     print(f"  Pairs with implication: {len(confirmed)}")
 
     # ── Enrich with prices ───────────────────────────────────────────────

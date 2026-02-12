@@ -48,6 +48,24 @@ def create_app(db_path: str = DB_PATH) -> Flask:
             return "Pair not found", 404
         return render_template("detail.html", pair=pair)
 
+    @app.route("/settings")
+    def settings():
+        conn = get_conn()
+        all_settings = db_mod.get_all_settings(conn)
+        latest_yields = db_mod.get_latest_yields(conn)
+        conn.close()
+        return render_template("settings.html", settings=all_settings, latest_yields=latest_yields)
+
+    @app.route("/settings", methods=["POST"])
+    def update_settings():
+        conn = get_conn()
+        buffer_bps = request.form.get("buffer_bps", "100")
+        borrow_rate_bps = request.form.get("borrow_rate_bps", "600")
+        db_mod.set_setting(conn, "buffer_bps", buffer_bps)
+        db_mod.set_setting(conn, "borrow_rate_bps", borrow_rate_bps)
+        conn.close()
+        return redirect(url_for("settings"))
+
     @app.route("/pair/<int:pair_id>/review", methods=["POST"])
     def submit_review(pair_id):
         decision = request.form.get("decision")

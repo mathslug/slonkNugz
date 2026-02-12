@@ -6,7 +6,7 @@ Designed for REPL use: import db; conn = db.get_connection("kalshi_arb.db")
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 
 SCHEMA_SQL = """\
@@ -41,8 +41,8 @@ CREATE TABLE IF NOT EXISTS candidate_pairs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker_a        TEXT NOT NULL REFERENCES tickers(ticker),
     ticker_b        TEXT NOT NULL REFERENCES tickers(ticker),
-    subset_ticker   TEXT,
-    superset_ticker TEXT,
+    antecedent_ticker  TEXT,
+    consequent_ticker TEXT,
     confidence      TEXT CHECK(confidence IN ('high','medium','low','none')),
     reasoning       TEXT,
     llm_model       TEXT,
@@ -50,6 +50,20 @@ CREATE TABLE IF NOT EXISTS candidate_pairs (
     human_review    TEXT CHECK(human_review IN ('confirmed','rejected') OR human_review IS NULL),
     reviewed_at     TEXT,
     UNIQUE(ticker_a, ticker_b)
+);
+
+CREATE TABLE IF NOT EXISTS treasury_yields (
+    date        TEXT PRIMARY KEY,
+    m1 REAL, m1h REAL, m2 REAL, m3 REAL, m4 REAL, m6 REAL,
+    y1 REAL, y2 REAL, y3 REAL, y5 REAL, y7 REAL,
+    y10 REAL, y20 REAL, y30 REAL,
+    fetched_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 """
 
@@ -63,9 +77,28 @@ def _sorted_pair(ticker_a: str, ticker_b: str) -> tuple[str, str]:
     return (ticker_a, ticker_b) if ticker_a <= ticker_b else (ticker_b, ticker_a)
 
 
+_MIGRATIONS = [
+    "ALTER TABLE candidate_pairs RENAME COLUMN subset_ticker TO antecedent_ticker",
+    "ALTER TABLE candidate_pairs RENAME COLUMN superset_ticker TO consequent_ticker",
+    "ALTER TABLE candidate_pairs RENAME COLUMN necessary_ticker TO antecedent_ticker",
+    "ALTER TABLE candidate_pairs RENAME COLUMN sufficient_ticker TO consequent_ticker",
+    "ALTER TABLE treasury_yields ADD COLUMN m1h REAL",
+]
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Apply column renames to existing DBs. Safe to re-run."""
+    for sql in _MIGRATIONS:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # already renamed or table doesn't exist yet
+
+
 def init_db(db_path: str) -> None:
     """Create tables. Idempotent."""
     conn = sqlite3.connect(db_path) if db_path != ":memory:" else sqlite3.connect(":memory:")
+    _run_migrations(conn)
     conn.executescript(SCHEMA_SQL)
     conn.close()
 
@@ -76,7 +109,13 @@ def get_connection(db_path: str = "kalshi_arb.db") -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
+    _run_migrations(conn)
     conn.executescript(SCHEMA_SQL)
+    conn.executemany(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+        [("buffer_bps", "100"), ("borrow_rate_bps", "600")],
+    )
+    conn.commit()
     return conn
 
 
@@ -200,8 +239,8 @@ def bulk_upsert_pair_results(
 ) -> int:
     """Store LLM screening results (including 'none' confidence).
 
-    Each result dict must have ticker_a, ticker_b, and may have subset_ticker,
-    superset_ticker, confidence, reasoning. Returns count of rows upserted.
+    Each result dict must have ticker_a, ticker_b, and may have antecedent_ticker,
+    consequent_ticker, confidence, reasoning. Returns count of rows upserted.
     """
     count = 0
     now = _now_utc()
@@ -209,19 +248,19 @@ def bulk_upsert_pair_results(
         ta, tb = _sorted_pair(r["ticker_a"], r["ticker_b"])
         conn.execute(
             """INSERT INTO candidate_pairs
-                (ticker_a, ticker_b, subset_ticker, superset_ticker,
+                (ticker_a, ticker_b, antecedent_ticker, consequent_ticker,
                  confidence, reasoning, llm_model, screened_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(ticker_a, ticker_b) DO UPDATE SET
-                subset_ticker = excluded.subset_ticker,
-                superset_ticker = excluded.superset_ticker,
+                antecedent_ticker = excluded.antecedent_ticker,
+                consequent_ticker = excluded.consequent_ticker,
                 confidence = excluded.confidence,
                 reasoning = excluded.reasoning,
                 llm_model = excluded.llm_model,
                 screened_at = excluded.screened_at""",
             (
                 ta, tb,
-                r.get("subset_ticker"), r.get("superset_ticker"),
+                r.get("antecedent_ticker"), r.get("consequent_ticker"),
                 r.get("confidence"), r.get("reasoning"),
                 model, now,
             ),
@@ -231,11 +270,166 @@ def bulk_upsert_pair_results(
     return count
 
 
+def _compute_yield(
+    cost: float | None,
+    expiration_a: str | None,
+    expiration_b: str | None,
+) -> tuple[float | None, int | None]:
+    """Effective annual yield and days to maturity for an arb pair.
+
+    Settlement date is the later of the two expirations.
+    Returns (yield, days) or (None, None).
+    """
+    if cost is None or cost <= 0:
+        return None, None
+    if not expiration_a or not expiration_b:
+        return None, None
+    try:
+        exp_a = datetime.fromisoformat(expiration_a.replace("Z", "+00:00")).date()
+        exp_b = datetime.fromisoformat(expiration_b.replace("Z", "+00:00")).date()
+    except (ValueError, AttributeError):
+        return None, None
+    settlement = max(exp_a, exp_b)
+    days = (settlement - date.today()).days
+    if days <= 0:
+        return None, None
+    ann_yield = (1.0 / cost) ** (365.0 / days) - 1.0
+    return ann_yield, days
+
+
+_CONF_ORDER = {"high": 0, "medium": 1, "low": 2, "none": 3}
+
+# Treasury tenor name -> approximate days
+_TENORS = [
+    ("m1", 30), ("m1h", 45), ("m2", 60), ("m3", 91), ("m4", 122), ("m6", 182),
+    ("y1", 365), ("y2", 730), ("y3", 1095), ("y5", 1825), ("y7", 2555),
+    ("y10", 3650), ("y20", 7300), ("y30", 10950),
+]
+
+
+# ---------------------------------------------------------------------------
+# Settings helpers
+# ---------------------------------------------------------------------------
+
+def get_setting(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
+    """Single setting lookup."""
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    """Upsert a setting with updated_at timestamp."""
+    conn.execute(
+        """INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at""",
+        (key, value, _now_utc()),
+    )
+    conn.commit()
+
+
+def get_all_settings(conn: sqlite3.Connection) -> dict[str, str]:
+    """All settings as dict."""
+    rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Treasury yield helpers
+# ---------------------------------------------------------------------------
+
+def upsert_treasury_yields(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    """Upsert parsed Treasury CMT yield rows. Returns count."""
+    count = 0
+    for r in rows:
+        conn.execute(
+            """INSERT INTO treasury_yields (date, m1, m1h, m2, m3, m4, m6, y1, y2, y3, y5, y7, y10, y20, y30)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                m1=excluded.m1, m1h=excluded.m1h, m2=excluded.m2, m3=excluded.m3, m4=excluded.m4, m6=excluded.m6,
+                y1=excluded.y1, y2=excluded.y2, y3=excluded.y3, y5=excluded.y5, y7=excluded.y7,
+                y10=excluded.y10, y20=excluded.y20, y30=excluded.y30,
+                fetched_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')""",
+            (
+                r["date"], r.get("m1"), r.get("m1h"), r.get("m2"), r.get("m3"), r.get("m4"), r.get("m6"),
+                r.get("y1"), r.get("y2"), r.get("y3"), r.get("y5"), r.get("y7"),
+                r.get("y10"), r.get("y20"), r.get("y30"),
+            ),
+        )
+        count += 1
+    conn.commit()
+    return count
+
+
+def get_latest_yields(conn: sqlite3.Connection) -> dict | None:
+    """Most recent row from treasury_yields (by date DESC)."""
+    row = conn.execute(
+        "SELECT * FROM treasury_yields ORDER BY date DESC LIMIT 1"
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def interpolate_treasury_rate(yields: dict, days: int) -> float | None:
+    """Linear interpolation between tenor brackets for a given days-to-maturity.
+
+    Returns rate as a percentage (e.g., 4.53 for 4.53%), or None if no data.
+    Clamps to nearest tenor if outside range.
+    """
+    if yields is None or days <= 0:
+        return None
+
+    # Build list of (days, rate) pairs, skipping None values
+    points = []
+    for name, tenor_days in _TENORS:
+        rate = yields.get(name)
+        if rate is not None:
+            points.append((tenor_days, rate))
+
+    if not points:
+        return None
+
+    # Clamp to nearest if outside range
+    if days <= points[0][0]:
+        return points[0][1]
+    if days >= points[-1][0]:
+        return points[-1][1]
+
+    # Find bracketing tenors and interpolate
+    for i in range(len(points) - 1):
+        d0, r0 = points[i]
+        d1, r1 = points[i + 1]
+        if d0 <= days <= d1:
+            frac = (days - d0) / (d1 - d0)
+            return r0 + frac * (r1 - r0)
+
+    return points[-1][1]
+
+
+# ---------------------------------------------------------------------------
+# Hurdle yield
+# ---------------------------------------------------------------------------
+
+def compute_hurdle_yield(conn: sqlite3.Connection, days: int | None) -> float | None:
+    """Hurdle yield = max(treasury_rate + buffer, borrow_rate).
+
+    Returns as a decimal (e.g., 0.06 for 6%), or None if days is None/invalid.
+    """
+    if days is None or days <= 0:
+        return None
+    buffer = int(get_setting(conn, "buffer_bps", "100")) / 10000
+    borrow_rate = int(get_setting(conn, "borrow_rate_bps", "600")) / 10000
+    latest = get_latest_yields(conn)
+    treasury_rate = interpolate_treasury_rate(latest, days) if latest else None
+    if treasury_rate is None:
+        return borrow_rate
+    return max(treasury_rate / 100 + buffer, borrow_rate)
+
+
 def get_pairs_for_review(conn: sqlite3.Connection, status: str) -> list[dict]:
     """Fetch pairs for review UI.
 
     status: "unreviewed" | "confirmed" | "rejected"
-    Returns list of dicts with pair + joined ticker info + computed arb_cost.
+    Returns list of dicts with pair + joined ticker info + computed arb_cost,
+    sorted by cost ascending then confidence descending.
     """
     if status == "unreviewed":
         where = "cp.human_review IS NULL AND cp.confidence != 'none'"
@@ -249,39 +443,53 @@ def get_pairs_for_review(conn: sqlite3.Connection, status: str) -> list[dict]:
     rows = conn.execute(
         f"""SELECT
             cp.id, cp.ticker_a, cp.ticker_b,
-            cp.subset_ticker, cp.superset_ticker,
+            cp.antecedent_ticker, cp.consequent_ticker,
             cp.confidence, cp.reasoning, cp.llm_model,
             cp.screened_at, cp.human_review, cp.reviewed_at,
-            sub.title AS subset_title,
-            sub.yes_ask_dollars AS subset_yes_ask,
-            sub.no_ask_dollars AS subset_no_ask,
-            sub.event_ticker AS subset_event_ticker,
-            sup.title AS superset_title,
-            sup.yes_ask_dollars AS superset_yes_ask,
-            sup.no_ask_dollars AS superset_no_ask,
-            sup.event_ticker AS superset_event_ticker
+            ant.title AS antecedent_title,
+            ant.yes_ask_dollars AS antecedent_yes_ask,
+            ant.no_ask_dollars AS antecedent_no_ask,
+            ant.event_ticker AS antecedent_event_ticker,
+            con.title AS consequent_title,
+            con.yes_ask_dollars AS consequent_yes_ask,
+            con.no_ask_dollars AS consequent_no_ask,
+            con.event_ticker AS consequent_event_ticker,
+            ant.expected_expiration_time AS antecedent_expiration,
+            con.expected_expiration_time AS consequent_expiration
         FROM candidate_pairs cp
-        LEFT JOIN tickers sub ON sub.ticker = cp.subset_ticker
-        LEFT JOIN tickers sup ON sup.ticker = cp.superset_ticker
-        WHERE {where}
-        ORDER BY cp.confidence DESC, cp.screened_at DESC""",
+        LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
+        LEFT JOIN tickers con ON con.ticker = cp.consequent_ticker
+        WHERE {where}""",
     ).fetchall()
 
     result = []
     for r in rows:
         d = dict(r)
-        # Compute arb cost: buy NO on subset + YES on superset
-        sub_no = d.get("subset_no_ask")
-        sup_yes = d.get("superset_yes_ask")
-        if sub_no is not None and sup_yes is not None:
+        # Compute arb cost: buy NO on antecedent + YES on consequent
+        ant_no = d.get("antecedent_no_ask")
+        con_yes = d.get("consequent_yes_ask")
+        if ant_no is not None and con_yes is not None:
             try:
-                d["arb_cost"] = round(float(sub_no) + float(sup_yes), 4)
+                d["arb_cost"] = round(float(ant_no) + float(con_yes), 4)
             except (ValueError, TypeError):
                 d["arb_cost"] = None
         else:
             d["arb_cost"] = None
+        d["annualized_yield"], d["days_to_maturity"] = _compute_yield(
+            d["arb_cost"], d.get("antecedent_expiration"), d.get("consequent_expiration"),
+        )
+        d["hurdle_yield"] = compute_hurdle_yield(conn, d["days_to_maturity"])
+        if d["annualized_yield"] is not None and d["hurdle_yield"] is not None:
+            d["excess_yield"] = d["annualized_yield"] - d["hurdle_yield"]
+        else:
+            d["excess_yield"] = None
         result.append(d)
 
+    result.sort(key=lambda d: (
+        d["excess_yield"] is None,
+        -(d["excess_yield"] if d["excess_yield"] is not None else 0),
+        _CONF_ORDER.get(d.get("confidence", ""), 4),
+    ))
     return result
 
 
@@ -290,25 +498,25 @@ def get_pair_detail(conn: sqlite3.Connection, pair_id: int) -> dict | None:
     row = conn.execute(
         """SELECT
             cp.*,
-            sub.title AS subset_title, sub.yes_sub_title AS subset_entity,
-            sub.series_ticker AS subset_series, sub.event_ticker AS subset_event_ticker,
-            sub.rules_primary AS subset_rules,
-            sub.expected_expiration_time AS subset_expiration,
-            sub.last_price_dollars AS subset_last_price,
-            sub.yes_ask_dollars AS subset_yes_ask,
-            sub.no_ask_dollars AS subset_no_ask,
-            sub.volume AS subset_volume,
-            sup.title AS superset_title, sup.yes_sub_title AS superset_entity,
-            sup.series_ticker AS superset_series, sup.event_ticker AS superset_event_ticker,
-            sup.rules_primary AS superset_rules,
-            sup.expected_expiration_time AS superset_expiration,
-            sup.last_price_dollars AS superset_last_price,
-            sup.yes_ask_dollars AS superset_yes_ask,
-            sup.no_ask_dollars AS superset_no_ask,
-            sup.volume AS superset_volume
+            ant.title AS antecedent_title, ant.yes_sub_title AS antecedent_entity,
+            ant.series_ticker AS antecedent_series, ant.event_ticker AS antecedent_event_ticker,
+            ant.rules_primary AS antecedent_rules,
+            ant.expected_expiration_time AS antecedent_expiration,
+            ant.last_price_dollars AS antecedent_last_price,
+            ant.yes_ask_dollars AS antecedent_yes_ask,
+            ant.no_ask_dollars AS antecedent_no_ask,
+            ant.volume AS antecedent_volume,
+            con.title AS consequent_title, con.yes_sub_title AS consequent_entity,
+            con.series_ticker AS consequent_series, con.event_ticker AS consequent_event_ticker,
+            con.rules_primary AS consequent_rules,
+            con.expected_expiration_time AS consequent_expiration,
+            con.last_price_dollars AS consequent_last_price,
+            con.yes_ask_dollars AS consequent_yes_ask,
+            con.no_ask_dollars AS consequent_no_ask,
+            con.volume AS consequent_volume
         FROM candidate_pairs cp
-        LEFT JOIN tickers sub ON sub.ticker = cp.subset_ticker
-        LEFT JOIN tickers sup ON sup.ticker = cp.superset_ticker
+        LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
+        LEFT JOIN tickers con ON con.ticker = cp.consequent_ticker
         WHERE cp.id = ?""",
         (pair_id,),
     ).fetchone()
@@ -317,15 +525,23 @@ def get_pair_detail(conn: sqlite3.Connection, pair_id: int) -> dict | None:
         return None
 
     d = dict(row)
-    sub_no = d.get("subset_no_ask")
-    sup_yes = d.get("superset_yes_ask")
-    if sub_no is not None and sup_yes is not None:
+    ant_no = d.get("antecedent_no_ask")
+    con_yes = d.get("consequent_yes_ask")
+    if ant_no is not None and con_yes is not None:
         try:
-            d["arb_cost"] = round(float(sub_no) + float(sup_yes), 4)
+            d["arb_cost"] = round(float(ant_no) + float(con_yes), 4)
         except (ValueError, TypeError):
             d["arb_cost"] = None
     else:
         d["arb_cost"] = None
+    d["annualized_yield"], d["days_to_maturity"] = _compute_yield(
+        d["arb_cost"], d.get("antecedent_expiration"), d.get("consequent_expiration"),
+    )
+    d["hurdle_yield"] = compute_hurdle_yield(conn, d["days_to_maturity"])
+    if d["annualized_yield"] is not None and d["hurdle_yield"] is not None:
+        d["excess_yield"] = d["annualized_yield"] - d["hurdle_yield"]
+    else:
+        d["excess_yield"] = None
     return d
 
 
@@ -375,12 +591,12 @@ def import_from_cache(
         with open(results_path) as f:
             results = json.load(f)
         for r in results:
-            sub = r.get("subset_ticker")
-            sup = r.get("superset_ticker")
-            if not sub or not sup:
+            ant = r.get("antecedent_ticker")
+            con = r.get("consequent_ticker")
+            if not ant or not con:
                 continue
-            r["ticker_a"] = sub
-            r["ticker_b"] = sup
+            r["ticker_a"] = ant
+            r["ticker_b"] = con
         pair_count = bulk_upsert_pair_results(conn, results, model="imported")
 
     return ticker_count, pair_count

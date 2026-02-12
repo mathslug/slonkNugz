@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Settings - Kalshi Arb{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+
+<article>
+  <header>Hurdle Rate Parameters</header>
+  <form method="post" action="/settings">
+    <label for="buffer_bps">
+      Buffer (basis points)
+      <small> — {{ settings.get("buffer_bps", "100") }} bps = {{ "%.2f"|format(settings.get("buffer_bps", "100")|int / 100) }}%</small>
+    </label>
+    <input type="number" id="buffer_bps" name="buffer_bps" value="{{ settings.get('buffer_bps', '100') }}" min="0" step="1">
+
+    <label for="borrow_rate_bps">
+      Borrow rate (basis points)
+      <small> — {{ settings.get("borrow_rate_bps", "600") }} bps = {{ "%.2f"|format(settings.get("borrow_rate_bps", "600")|int / 100) }}%</small>
+    </label>
+    <input type="number" id="borrow_rate_bps" name="borrow_rate_bps" value="{{ settings.get('borrow_rate_bps', '600') }}" min="0" step="1">
+
+    <button type="submit">Save</button>
+  </form>
+  <p><small>Hurdle yield = max(treasury_rate + buffer, borrow_rate)</small></p>
+</article>
+
+<article>
+  <header>Treasury Yield Curve</header>
+  {% if latest_yields %}
+  <p>Latest date: <strong>{{ latest_yields.date }}</strong></p>
+  <figure>
+  <table>
+    <thead>
+      <tr>
+        <th>1M</th><th>1.5M</th><th>2M</th><th>3M</th><th>4M</th><th>6M</th>
+        <th>1Y</th><th>2Y</th><th>3Y</th><th>5Y</th><th>7Y</th>
+        <th>10Y</th><th>20Y</th><th>30Y</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        {% for col in ["m1","m1h","m2","m3","m4","m6","y1","y2","y3","y5","y7","y10","y20","y30"] %}
+        <td>{% if latest_yields[col] is not none %}{{ "%.2f"|format(latest_yields[col]) }}%{% else %}N/A{% endif %}</td>
+        {% endfor %}
+      </tr>
+    </tbody>
+  </table>
+  </figure>
+  {% else %}
+  <p>No Treasury yield data. Run <code>uv run fetch_yields.py</code> to fetch.</p>
+  {% endif %}
+</article>
+{% endblock %}
