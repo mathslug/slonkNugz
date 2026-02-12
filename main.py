@@ -149,6 +149,164 @@ def evaluate_arb(
     )
 
 
+# ── Pair evaluation (for confirmed arb pairs from DB) ──────────────────────
+
+
+def fetch_pair_books(antecedent_ticker: str, consequent_ticker: str) -> dict:
+    """Fetch orderbooks for both legs of an arb pair.
+
+    Returns dict with bids reversed (best-first) for walking, plus
+    top-of-book asks.
+
+    Strategy: buy NO on antecedent (walk YES bids), buy YES on consequent (walk NO bids).
+    """
+    ant_market = fetch_market(antecedent_ticker)
+    con_market = fetch_market(consequent_ticker)
+    ant_book = fetch_orderbook(antecedent_ticker)
+    con_book = fetch_orderbook(consequent_ticker)
+
+    # Buy NO on antecedent: walk YES bids (highest first)
+    ant_bids = list(reversed(ant_book["yes"]))
+    # Buy YES on consequent: walk NO bids (highest first)
+    con_bids = list(reversed(con_book["no"]))
+
+    return {
+        "ant_bids": ant_bids,
+        "con_bids": con_bids,
+        "ant_tob_no_ask": float(ant_market["no_ask_dollars"]),
+        "con_tob_yes_ask": float(con_market["yes_ask_dollars"]),
+    }
+
+
+def evaluate_pair(pair: dict, hurdle_yield: float, max_n: int = 500) -> dict:
+    """Evaluate a confirmed arb pair against live orderbooks.
+
+    Takes a pair dict (from get_pairs_for_review(conn, "confirmed")), fetches
+    orderbooks, finds the optimal number of contracts via binary search where
+    yield still exceeds the hurdle.
+
+    Returns a dict with recommendation, optimal n, costs, yields, and fills.
+    """
+    from datetime import datetime
+
+    pair_id = pair["id"]
+    ant_ticker = pair["antecedent_ticker"]
+    con_ticker = pair["consequent_ticker"]
+
+    # Compute days to maturity
+    ant_exp = pair.get("antecedent_expiration")
+    con_exp = pair.get("consequent_expiration")
+    if not ant_exp or not con_exp:
+        return {"pair_id": pair_id, "recommendation": "pass", "n_contracts": 0,
+                "annualized_yield": None, "hurdle_yield": hurdle_yield,
+                "excess_yield": None, "days_to_maturity": None}
+
+    try:
+        exp_a = datetime.fromisoformat(ant_exp.replace("Z", "+00:00")).date()
+        exp_b = datetime.fromisoformat(con_exp.replace("Z", "+00:00")).date()
+    except (ValueError, AttributeError):
+        return {"pair_id": pair_id, "recommendation": "pass", "n_contracts": 0,
+                "annualized_yield": None, "hurdle_yield": hurdle_yield,
+                "excess_yield": None, "days_to_maturity": None}
+
+    settlement = max(exp_a, exp_b)
+    days = (settlement - date.today()).days
+    if days <= 0:
+        return {"pair_id": pair_id, "recommendation": "pass", "n_contracts": 0,
+                "annualized_yield": None, "hurdle_yield": hurdle_yield,
+                "excess_yield": None, "days_to_maturity": days}
+
+    # Fetch orderbooks
+    books = fetch_pair_books(ant_ticker, con_ticker)
+
+    def yield_at_n(n: int) -> float | None:
+        leg_a = walk_book(books["ant_bids"], n)
+        leg_b = walk_book(books["con_bids"], n)
+        effective_n = min(leg_a.filled, leg_b.filled)
+        if effective_n == 0:
+            return None
+        # Re-walk at effective_n if constrained
+        if effective_n < n:
+            leg_a = walk_book(books["ant_bids"], effective_n)
+            leg_b = walk_book(books["con_bids"], effective_n)
+        cost_per = (leg_a.cost + leg_a.fees + leg_b.cost + leg_b.fees) / effective_n
+        if cost_per >= 1.0:
+            return None
+        return (1.0 / cost_per) ** (365.0 / days) - 1.0
+
+    # Check yield at n=1
+    y1 = yield_at_n(1)
+    if y1 is None or y1 < hurdle_yield:
+        # Build a pass result with top-of-book info
+        tob_cost = books["ant_tob_no_ask"] + books["con_tob_yes_ask"]
+        return {
+            "pair_id": pair_id, "recommendation": "pass", "n_contracts": 0,
+            "cost_per_pair": tob_cost, "total_cost": 0.0,
+            "ant_leg_cost": 0.0, "ant_leg_fees": 0.0,
+            "con_leg_cost": 0.0, "con_leg_fees": 0.0,
+            "annualized_yield": y1, "hurdle_yield": hurdle_yield,
+            "excess_yield": (y1 - hurdle_yield) if y1 is not None else None,
+            "days_to_maturity": days, "max_fillable": 0,
+            "tob_ant_no_ask": books["ant_tob_no_ask"],
+            "tob_con_yes_ask": books["con_tob_yes_ask"],
+            "tob_cost": tob_cost,
+            "ant_fills": [], "con_fills": [],
+        }
+
+    # Find max fillable
+    leg_a_max = walk_book(books["ant_bids"], max_n)
+    leg_b_max = walk_book(books["con_bids"], max_n)
+    max_fillable = min(leg_a_max.filled, leg_b_max.filled)
+
+    # Binary search for largest n where yield >= hurdle
+    lo, hi = 1, max_fillable
+    best_n = 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        y = yield_at_n(mid)
+        if y is not None and y >= hurdle_yield:
+            best_n = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    # Final evaluation at optimal n
+    leg_a = walk_book(books["ant_bids"], best_n)
+    leg_b = walk_book(books["con_bids"], best_n)
+    effective_n = min(leg_a.filled, leg_b.filled)
+    if effective_n < best_n and effective_n > 0:
+        leg_a = walk_book(books["ant_bids"], effective_n)
+        leg_b = walk_book(books["con_bids"], effective_n)
+        best_n = effective_n
+
+    total = leg_a.cost + leg_a.fees + leg_b.cost + leg_b.fees
+    cost_per = total / best_n if best_n > 0 else None
+    ann_yield = (1.0 / cost_per) ** (365.0 / days) - 1.0 if cost_per and cost_per < 1.0 else None
+    tob_cost = books["ant_tob_no_ask"] + books["con_tob_yes_ask"]
+
+    return {
+        "pair_id": pair_id,
+        "recommendation": "buy",
+        "n_contracts": best_n,
+        "cost_per_pair": round(cost_per, 6) if cost_per else None,
+        "total_cost": round(total, 2),
+        "ant_leg_cost": round(leg_a.cost, 4),
+        "ant_leg_fees": round(leg_a.fees, 4),
+        "con_leg_cost": round(leg_b.cost, 4),
+        "con_leg_fees": round(leg_b.fees, 4),
+        "annualized_yield": round(ann_yield, 6) if ann_yield is not None else None,
+        "hurdle_yield": hurdle_yield,
+        "excess_yield": round(ann_yield - hurdle_yield, 6) if ann_yield is not None else None,
+        "days_to_maturity": days,
+        "max_fillable": max_fillable,
+        "tob_ant_no_ask": books["ant_tob_no_ask"],
+        "tob_con_yes_ask": books["con_tob_yes_ask"],
+        "tob_cost": round(tob_cost, 4),
+        "ant_fills": [{"price": f.price, "qty": f.qty, "fee": f.fee} for f in leg_a.fills],
+        "con_fills": [{"price": f.price, "qty": f.qty, "fee": f.fee} for f in leg_b.fills],
+    }
+
+
 # ── CLI: Musetti FO / GS tennis arb ─────────────────────────────────────────
 
 FO_TICKER = "KXFOMEN-26-MUS"

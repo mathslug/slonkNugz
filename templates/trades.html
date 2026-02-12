@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Recommended Trades - Kalshi Arb{% endblock %}
+{% block content %}
+<h2>Recommended Trades</h2>
+
+{% if not evals %}
+<article>
+  <p>No trade recommendations yet. Run <code>uv run evaluate.py</code> to evaluate confirmed pairs against live orderbooks.</p>
+</article>
+{% else %}
+<p>
+  <small>
+    Showing {{ evals|length }} recommendation{{ 's' if evals|length != 1 else '' }}.
+    Last evaluated: {{ evals[0].evaluated_at if evals else 'N/A' }}.
+    Run <code>uv run evaluate.py</code> to refresh.
+  </small>
+</p>
+
+<figure>
+<table>
+  <thead>
+    <tr>
+      <th>Antecedent</th>
+      <th>Consequent</th>
+      <th>Rec</th>
+      <th>Contracts</th>
+      <th>Cost/pair</th>
+      <th>Total cost</th>
+      <th>Yield</th>
+      <th>Excess yield</th>
+      <th>Liquidity</th>
+      <th>Evaluated</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in evals %}
+    <tr>
+      <td>
+        <a href="https://kalshi.com/markets/{{ e.antecedent_event_ticker }}" target="_blank">{{ e.antecedent_ticker }}</a>
+        <br><small>{{ e.antecedent_title }}</small>
+      </td>
+      <td>
+        <a href="https://kalshi.com/markets/{{ e.consequent_event_ticker }}" target="_blank">{{ e.consequent_ticker }}</a>
+        <br><small>{{ e.consequent_title }}</small>
+      </td>
+      <td>
+        <mark style="background-color:#4a4">BUY</mark>
+      </td>
+      <td style="text-align:right">{{ e.n_contracts }}</td>
+      <td style="text-align:right">${{ "%.4f"|format(e.cost_per_pair) }}</td>
+      <td style="text-align:right">${{ "%.2f"|format(e.total_cost) }}</td>
+      <td style="text-align:right">
+        {% if e.annualized_yield is not none %}{{ "%.2f"|format(e.annualized_yield * 100) }}%{% else %}N/A{% endif %}
+      </td>
+      <td style="text-align:right;font-weight:bold;color:{{ 'green' if e.excess_yield is not none and e.excess_yield > 0 else 'red' }}">
+        {% if e.excess_yield is not none %}{{ "%+.2f"|format(e.excess_yield * 100) }}%{% else %}N/A{% endif %}
+      </td>
+      <td style="text-align:right">{{ e.max_fillable }}</td>
+      <td><small>{{ e.evaluated_at[:16] if e.evaluated_at else 'N/A' }}</small></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</figure>
+
+{% set total_capital = evals | map(attribute='total_cost') | select('number') | sum %}
+<p><strong>Total capital needed:</strong> ${{ "%.2f"|format(total_capital) }}</p>
+{% endif %}
+{% endblock %}

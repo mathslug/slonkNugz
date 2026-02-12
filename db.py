@@ -52,6 +52,30 @@ CREATE TABLE IF NOT EXISTS candidate_pairs (
     UNIQUE(ticker_a, ticker_b)
 );
 
+CREATE TABLE IF NOT EXISTS trade_evaluations (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair_id           INTEGER NOT NULL REFERENCES candidate_pairs(id),
+    evaluated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    recommendation    TEXT NOT NULL CHECK(recommendation IN ('buy','pass')),
+    n_contracts       INTEGER NOT NULL DEFAULT 0,
+    cost_per_pair     REAL,
+    total_cost        REAL,
+    ant_leg_cost      REAL,
+    ant_leg_fees      REAL,
+    con_leg_cost      REAL,
+    con_leg_fees      REAL,
+    annualized_yield  REAL,
+    hurdle_yield      REAL,
+    excess_yield      REAL,
+    days_to_maturity  INTEGER,
+    max_fillable      INTEGER,
+    tob_ant_no_ask    REAL,
+    tob_con_yes_ask   REAL,
+    tob_cost          REAL,
+    ant_fills_json    TEXT,
+    con_fills_json    TEXT
+);
+
 CREATE TABLE IF NOT EXISTS treasury_yields (
     date        TEXT PRIMARY KEY,
     m1 REAL, m1h REAL, m2 REAL, m3 REAL, m4 REAL, m6 REAL,
@@ -600,3 +624,128 @@ def import_from_cache(
         pair_count = bulk_upsert_pair_results(conn, results, model="imported")
 
     return ticker_count, pair_count
+
+
+# ---------------------------------------------------------------------------
+# Trade evaluation helpers
+# ---------------------------------------------------------------------------
+
+def insert_trade_evaluation(conn: sqlite3.Connection, eval_dict: dict) -> int:
+    """Insert a single trade evaluation row. Returns the new row ID."""
+    now = _now_utc()
+    cur = conn.execute(
+        """INSERT INTO trade_evaluations
+            (pair_id, evaluated_at, recommendation, n_contracts,
+             cost_per_pair, total_cost, ant_leg_cost, ant_leg_fees,
+             con_leg_cost, con_leg_fees, annualized_yield, hurdle_yield,
+             excess_yield, days_to_maturity, max_fillable,
+             tob_ant_no_ask, tob_con_yes_ask, tob_cost,
+             ant_fills_json, con_fills_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            eval_dict["pair_id"], now, eval_dict["recommendation"],
+            eval_dict.get("n_contracts", 0),
+            eval_dict.get("cost_per_pair"), eval_dict.get("total_cost"),
+            eval_dict.get("ant_leg_cost"), eval_dict.get("ant_leg_fees"),
+            eval_dict.get("con_leg_cost"), eval_dict.get("con_leg_fees"),
+            eval_dict.get("annualized_yield"), eval_dict.get("hurdle_yield"),
+            eval_dict.get("excess_yield"), eval_dict.get("days_to_maturity"),
+            eval_dict.get("max_fillable"),
+            eval_dict.get("tob_ant_no_ask"), eval_dict.get("tob_con_yes_ask"),
+            eval_dict.get("tob_cost"),
+            json.dumps(eval_dict.get("ant_fills")) if eval_dict.get("ant_fills") else None,
+            json.dumps(eval_dict.get("con_fills")) if eval_dict.get("con_fills") else None,
+        ),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def bulk_insert_evaluations(conn: sqlite3.Connection, evals: list[dict]) -> int:
+    """Insert a batch of trade evaluations. Returns count inserted."""
+    count = 0
+    now = _now_utc()
+    for e in evals:
+        conn.execute(
+            """INSERT INTO trade_evaluations
+                (pair_id, evaluated_at, recommendation, n_contracts,
+                 cost_per_pair, total_cost, ant_leg_cost, ant_leg_fees,
+                 con_leg_cost, con_leg_fees, annualized_yield, hurdle_yield,
+                 excess_yield, days_to_maturity, max_fillable,
+                 tob_ant_no_ask, tob_con_yes_ask, tob_cost,
+                 ant_fills_json, con_fills_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                e["pair_id"], now, e["recommendation"],
+                e.get("n_contracts", 0),
+                e.get("cost_per_pair"), e.get("total_cost"),
+                e.get("ant_leg_cost"), e.get("ant_leg_fees"),
+                e.get("con_leg_cost"), e.get("con_leg_fees"),
+                e.get("annualized_yield"), e.get("hurdle_yield"),
+                e.get("excess_yield"), e.get("days_to_maturity"),
+                e.get("max_fillable"),
+                e.get("tob_ant_no_ask"), e.get("tob_con_yes_ask"),
+                e.get("tob_cost"),
+                json.dumps(e.get("ant_fills")) if e.get("ant_fills") else None,
+                json.dumps(e.get("con_fills")) if e.get("con_fills") else None,
+            ),
+        )
+        count += 1
+    conn.commit()
+    return count
+
+
+def get_latest_evaluations(conn: sqlite3.Connection) -> list[dict]:
+    """Latest evaluation per pair (only 'buy' recommendations), joined with pair/ticker info."""
+    rows = conn.execute(
+        """SELECT te.*, cp.antecedent_ticker, cp.consequent_ticker,
+                  cp.confidence, cp.reasoning,
+                  ant.title AS antecedent_title,
+                  ant.event_ticker AS antecedent_event_ticker,
+                  con.title AS consequent_title,
+                  con.event_ticker AS consequent_event_ticker
+           FROM trade_evaluations te
+           INNER JOIN (
+               SELECT pair_id, MAX(evaluated_at) AS max_eval
+               FROM trade_evaluations
+               GROUP BY pair_id
+           ) latest ON te.pair_id = latest.pair_id AND te.evaluated_at = latest.max_eval
+           INNER JOIN candidate_pairs cp ON cp.id = te.pair_id
+           LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
+           LEFT JOIN tickers con ON con.ticker = cp.consequent_ticker
+           WHERE te.recommendation = 'buy'
+           ORDER BY te.excess_yield DESC"""
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_evaluation_detail(conn: sqlite3.Connection, eval_id: int) -> dict | None:
+    """Single evaluation with full pair/ticker info."""
+    row = conn.execute(
+        """SELECT te.*, cp.antecedent_ticker, cp.consequent_ticker,
+                  cp.confidence, cp.reasoning, cp.human_review,
+                  ant.title AS antecedent_title,
+                  ant.event_ticker AS antecedent_event_ticker,
+                  ant.series_ticker AS antecedent_series,
+                  ant.yes_sub_title AS antecedent_entity,
+                  ant.volume AS antecedent_volume,
+                  con.title AS consequent_title,
+                  con.event_ticker AS consequent_event_ticker,
+                  con.series_ticker AS consequent_series,
+                  con.yes_sub_title AS consequent_entity,
+                  con.volume AS consequent_volume
+           FROM trade_evaluations te
+           INNER JOIN candidate_pairs cp ON cp.id = te.pair_id
+           LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
+           LEFT JOIN tickers con ON con.ticker = cp.consequent_ticker
+           WHERE te.id = ?""",
+        (eval_id,),
+    ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    if d.get("ant_fills_json"):
+        d["ant_fills"] = json.loads(d["ant_fills_json"])
+    if d.get("con_fills_json"):
+        d["con_fills"] = json.loads(d["con_fills_json"])
+    return d
