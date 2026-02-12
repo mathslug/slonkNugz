@@ -10,18 +10,21 @@ LOG_DIR=/var/log/kalshi-arb
 DOMAIN=slonkn.mathslug.com
 
 echo "==> Creating system user and directories"
-id -u "$APP_USER" &>/dev/null || useradd --system --shell /sbin/nologin "$APP_USER"
-mkdir -p "$DATA_DIR" "$DATA_DIR/backups" "$LOG_DIR"
-chown "$APP_USER:$APP_USER" "$DATA_DIR" "$DATA_DIR/backups" "$LOG_DIR"
+id -u "$APP_USER" &>/dev/null || useradd --system --shell /sbin/nologin -d /home/$APP_USER "$APP_USER"
+mkdir -p "$DATA_DIR" "$DATA_DIR/backups" "$LOG_DIR" /home/$APP_USER/.cache
+chown "$APP_USER:$APP_USER" "$DATA_DIR" "$DATA_DIR/backups" "$LOG_DIR" /home/$APP_USER /home/$APP_USER/.cache
 
 echo "==> Installing system packages"
-dnf install -y -q nginx certbot python3-certbot-nginx httpd-tools cronie
+dnf install -y -q epel-release 2>/dev/null || true
+dnf install -y -q nginx certbot python3-certbot-nginx httpd-tools cronie git policycoreutils-python-utils
 
 # Install uv if not present
-if ! command -v uv &>/dev/null; then
+if ! command -v /usr/local/bin/uv &>/dev/null; then
     echo "==> Installing uv"
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
+    cp /root/.local/bin/uv /usr/local/bin/uv
+    cp /root/.local/bin/uvx /usr/local/bin/uvx
+    chmod 755 /usr/local/bin/uv /usr/local/bin/uvx
 fi
 
 echo "==> Setting up app directory"
@@ -31,12 +34,21 @@ if [ ! -d "$APP_DIR/.git" ]; then
     exit 1
 fi
 
-# Ensure venv + deps
+# Install Python and deps via uv into a shared location
+export UV_PYTHON_INSTALL_DIR=/opt/uv-python
 cd "$APP_DIR"
 uv sync
 
+# Fix SELinux contexts for venv binaries
+echo "==> Fixing SELinux contexts"
+semanage fcontext -a -t bin_t '/opt/kalshi-arb/.venv/bin(/.*)?' 2>/dev/null || true
+semanage fcontext -a -t bin_t '/opt/uv-python/.*/bin(/.*)?' 2>/dev/null || true
+restorecon -Rv /opt/kalshi-arb/.venv/bin/ /opt/uv-python/ 2>/dev/null || true
+
+# Allow nginx to connect to gunicorn (TCP)
+setsebool -P httpd_can_network_connect 1
+
 echo "==> Writing nginx config"
-# RHEL uses conf.d instead of sites-available/sites-enabled
 cat > /etc/nginx/conf.d/kalshi-arb.conf <<NGINX
 server {
     listen 80;
@@ -46,7 +58,7 @@ server {
     auth_basic_user_file /etc/nginx/.htpasswd;
 
     location / {
-        proxy_pass http://unix:/run/kalshi-arb/kalshi-arb.sock;
+        proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -55,19 +67,7 @@ server {
 }
 NGINX
 
-# Remove default server block if it exists in the main config
-# (RHEL nginx.conf has a default server{} block — comment it out)
-if grep -q 'listen.*80 default_server' /etc/nginx/nginx.conf; then
-    sed -i '/^    server {/,/^    }/s/^/#/' /etc/nginx/nginx.conf
-fi
-
 nginx -t && systemctl enable --now nginx && systemctl reload nginx
-
-# Open firewall for HTTP/HTTPS
-if command -v firewall-cmd &>/dev/null; then
-    firewall-cmd --permanent --add-service=http --add-service=https 2>/dev/null || true
-    firewall-cmd --reload 2>/dev/null || true
-fi
 
 echo "==> Writing systemd service"
 cat > /etc/systemd/system/kalshi-arb.service <<EOF
@@ -81,8 +81,7 @@ Group=$APP_USER
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$DATA_DIR/.env
 Environment=KALSHI_DB=$DATA_DIR/kalshi_arb.db
-ExecStart=$APP_DIR/.venv/bin/gunicorn --bind unix:/run/kalshi-arb/kalshi-arb.sock --workers 2 "app:create_app()"
-RuntimeDirectory=kalshi-arb
+ExecStart=$APP_DIR/.venv/bin/gunicorn --bind 127.0.0.1:8000 --workers 2 "app:create_app()"
 
 [Install]
 WantedBy=multi-user.target
@@ -91,6 +90,17 @@ EOF
 systemctl daemon-reload
 systemctl enable kalshi-arb
 
+echo "==> Setting up deploy user"
+id -u deploy &>/dev/null || useradd -m deploy
+usermod -aG kalshi deploy
+cat > /etc/sudoers.d/deploy <<'SUDOERS'
+deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart kalshi-arb, /usr/bin/systemctl reload nginx
+SUDOERS
+chmod 440 /etc/sudoers.d/deploy
+chown -R deploy:kalshi "$APP_DIR"
+chmod -R g+rw "$APP_DIR"
+chown -R $APP_USER:$APP_USER "$APP_DIR/.venv"
+
 echo "==> Enabling crond"
 systemctl enable --now crond
 
@@ -98,7 +108,7 @@ echo "==> Writing cron jobs"
 cat > /etc/cron.d/kalshi-arb <<CRON
 # Kalshi Arb scheduled jobs (times in UTC)
 SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/.local/bin
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 
 # Fetch Treasury yields daily at 6:00 AM ET (10:00 UTC)
 0 10 * * * $APP_USER $APP_DIR/deploy/run.sh fetch_yields.py --db $DATA_DIR/kalshi_arb.db >> $LOG_DIR/cron.log 2>&1

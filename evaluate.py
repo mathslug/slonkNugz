@@ -81,7 +81,7 @@ def main() -> None:
             hurdle = 0.06  # fallback
 
         try:
-            result = evaluate_pair(pair, hurdle, args.max_n)
+            result = evaluate_pair(pair, hurdle, args.max_n, conn=conn)
             results.append(result)
             rec = result["recommendation"].upper()
             if rec == "BUY":

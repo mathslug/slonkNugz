@@ -11,7 +11,6 @@ review via the companion Flask webapp (app.py).
 """
 
 import argparse
-import csv
 import json
 import logging
 import sys
@@ -569,73 +568,7 @@ def screen_pairs_with_llm(
     return results
 
 
-# ── Enrichment ───────────────────────────────────────────────────────────────
-
-
-def enrich_with_prices(results: list[dict], markets_by_ticker: dict[str, dict]) -> list[dict]:
-    """Add current ask prices and compute top-of-book arb cost for each pair."""
-    enriched = []
-    for r in results:
-        antecedent_ticker = r.get("antecedent_ticker")
-        consequent_ticker = r.get("consequent_ticker")
-        if not antecedent_ticker or not consequent_ticker:
-            enriched.append(r)
-            continue
-
-        ant_market = markets_by_ticker.get(antecedent_ticker, {})
-        con_market = markets_by_ticker.get(consequent_ticker, {})
-
-        # Always: buy NO on antecedent, YES on consequent
-        ant_ask = ant_market.get("no_ask_dollars")
-        con_ask = con_market.get("yes_ask_dollars")
-
-        if ant_ask is not None and con_ask is not None:
-            ant_ask = float(ant_ask)
-            con_ask = float(con_ask)
-            arb_cost = ant_ask + con_ask
-            r["antecedent_ask"] = ant_ask
-            r["consequent_ask"] = con_ask
-            r["arb_cost"] = round(arb_cost, 4)
-        else:
-            r["antecedent_ask"] = ant_ask
-            r["consequent_ask"] = con_ask
-            r["arb_cost"] = None
-
-        r["antecedent_title"] = ant_market.get("title", "")
-        r["consequent_title"] = con_market.get("title", "")
-        exp = ant_market.get("expected_expiration_time", "")
-        r["payoff_date"] = exp[:10] if exp else None
-        enriched.append(r)
-
-    return enriched
-
-
 # ── Output ───────────────────────────────────────────────────────────────────
-
-
-CSV_COLUMNS = [
-    "confidence", "arb_cost",
-    "antecedent_ticker", "antecedent_title", "antecedent_ask",
-    "consequent_ticker", "consequent_title", "consequent_ask",
-    "payoff_date", "reasoning",
-]
-
-
-def write_results(results: list[dict], path: str) -> None:
-    """Write scan results to a JSON file."""
-    with open(path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"\nResults written to {path}")
-
-
-def write_csv(results: list[dict], path: str) -> None:
-    """Write scan results to a CSV file."""
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        for r in sorted(results, key=lambda x: x.get("arb_cost") or 999):
-            writer.writerow(r)
-    print(f"CSV written to {path}")
 
 
 def print_summary(results: list[dict]) -> None:
@@ -725,14 +658,6 @@ def main() -> None:
     )
     # Output options
     parser.add_argument(
-        "--output", "-o", default="scan_results.json",
-        help="output JSON file path (default: scan_results.json)",
-    )
-    parser.add_argument(
-        "--csv", default=None, metavar="PATH",
-        help="also write results to a CSV file",
-    )
-    parser.add_argument(
         "--log-file", default="scan.log",
         help="log file path (default: scan.log)",
     )
@@ -805,17 +730,7 @@ def main() -> None:
     confirmed = [r for r in all_results if r.get("confidence") != "none" and r.get("antecedent_ticker") and r.get("consequent_ticker")]
     print(f"  Pairs with implication: {len(confirmed)}")
 
-    # ── Enrich with prices ───────────────────────────────────────────────
-    print("\nEnriching with current prices...")
-    # Build ticker lookup from DB
-    all_tickers = conn.execute("SELECT * FROM tickers").fetchall()
-    markets_by_ticker = {dict(r)["ticker"]: dict(r) for r in all_tickers}
-    confirmed = enrich_with_prices(confirmed, markets_by_ticker)
-
     # ── Output ───────────────────────────────────────────────────────────
-    write_results(confirmed, args.output)
-    if args.csv:
-        write_csv(confirmed, args.csv)
     print_summary(confirmed)
 
     conn.close()

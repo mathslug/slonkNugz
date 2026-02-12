@@ -5,4 +5,5 @@ set -euo pipefail
 cd /opt/kalshi-arb
 set -a; source /var/lib/kalshi-arb/.env; set +a
 export KALSHI_DB=/var/lib/kalshi-arb/kalshi_arb.db
-exec uv run "$@"
+export UV_PYTHON_INSTALL_DIR=/opt/uv-python
+exec /usr/local/bin/uv run "$@"

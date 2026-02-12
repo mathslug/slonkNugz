@@ -155,7 +155,7 @@ def evaluate_arb(
 # ── Pair evaluation (for confirmed arb pairs from DB) ──────────────────────
 
 
-def fetch_pair_books(antecedent_ticker: str, consequent_ticker: str) -> dict:
+def fetch_pair_books(antecedent_ticker: str, consequent_ticker: str, conn=None) -> dict:
     """Fetch orderbooks for both legs of an arb pair.
 
     Returns dict with bids reversed (best-first) for walking, plus
@@ -166,6 +166,20 @@ def fetch_pair_books(antecedent_ticker: str, consequent_ticker: str) -> dict:
     log.debug("fetch_pair_books: ant=%s con=%s", antecedent_ticker, consequent_ticker)
     ant_market = fetch_market(antecedent_ticker)
     con_market = fetch_market(consequent_ticker)
+
+    if conn is not None:
+        import db as db_mod
+        db_mod.record_prices(conn, [
+            {"ticker": antecedent_ticker,
+             "last_price_dollars": ant_market.get("last_price_dollars"),
+             "yes_ask_dollars": ant_market.get("yes_ask_dollars"),
+             "no_ask_dollars": ant_market.get("no_ask_dollars")},
+            {"ticker": consequent_ticker,
+             "last_price_dollars": con_market.get("last_price_dollars"),
+             "yes_ask_dollars": con_market.get("yes_ask_dollars"),
+             "no_ask_dollars": con_market.get("no_ask_dollars")},
+        ])
+
     ant_book = fetch_orderbook(antecedent_ticker)
     con_book = fetch_orderbook(consequent_ticker)
 
@@ -182,7 +196,7 @@ def fetch_pair_books(antecedent_ticker: str, consequent_ticker: str) -> dict:
     }
 
 
-def evaluate_pair(pair: dict, hurdle_yield: float, max_n: int = 500) -> dict:
+def evaluate_pair(pair: dict, hurdle_yield: float, max_n: int = 500, conn=None) -> dict:
     """Evaluate a confirmed arb pair against live orderbooks.
 
     Takes a pair dict (from get_pairs_for_review(conn, "confirmed")), fetches
@@ -219,7 +233,7 @@ def evaluate_pair(pair: dict, hurdle_yield: float, max_n: int = 500) -> dict:
                 "excess_yield": None, "days_to_maturity": days}
 
     # Fetch orderbooks
-    books = fetch_pair_books(ant_ticker, con_ticker)
+    books = fetch_pair_books(ant_ticker, con_ticker, conn=conn)
 
     if not books["ant_bids"]:
         log.warning("Pair %s: empty antecedent orderbook (%s)", pair_id, ant_ticker)

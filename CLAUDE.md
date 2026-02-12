@@ -10,7 +10,7 @@ Seven code files + templates + deploy scripts:
 
 - **`main.py`** -- evaluates a known arb pair. Has `evaluate_arb(ticker_a, side_a, ticker_b, side_b, n, settlement_date, discount_rate)` which walks both orderbooks, computes all-in cost with fees, and returns an `ArbResult` (key field: `npv`). CLI wrapper hardcodes the Musetti FO/GS tennis tickers.
 
-- **`scan.py`** -- discovers arb pairs automatically. Fetches sports markets from Kalshi, groups by entity (`yes_sub_title`), generates cross-series candidate pairs, screens via Claude Haiku for logical implication, enriches with prices, persists to SQLite DB, outputs JSON + CSV + terminal summary.
+- **`scan.py`** -- discovers arb pairs automatically. Fetches sports markets from Kalshi, groups by entity (`yes_sub_title`), generates cross-series candidate pairs, screens via Claude Haiku for logical implication, persists to SQLite DB, prints terminal summary.
 
 - **`db.py`** -- pure SQLite persistence functions. Every function takes `conn` as first arg — no global state. Tables: `tickers`, `prices`, and `candidate_pairs`. Designed for REPL use: `import db; conn = db.get_connection("kalshi_arb.db")`.
 
@@ -40,7 +40,7 @@ uv run main.py -n 500 --rfr 0.04 --buffer 0.005
 
 ### Scan for new pairs
 ```
-uv run scan.py --filter "tennis,atp,wta,french open,grand slam,wimbledon" --csv scan_results.csv
+uv run scan.py --filter "tennis,atp,wta,french open,grand slam,wimbledon"
 uv run scan.py --filter tennis --min-volume 100
 uv run scan.py --model claude-haiku-4-5-20251001 --batch-size 12
 ```
@@ -77,8 +77,6 @@ uv run python -c "import db; conn = db.get_connection(); db.import_from_cache(co
 
 ### CLI args -- scan.py
 - `--filter` / `-f` -- comma-separated keywords to filter series (e.g. "tennis,atp,grand slam")
-- `--output` / `-o` -- JSON output path (default: scan_results.json)
-- `--csv` -- also write CSV to this path
 - `--model` -- Anthropic model name (default: `claude-haiku-4-5-20251001`)
 - `--min-volume` -- exclude markets below this volume (default: 0)
 - `--batch-size` -- pairs per LLM call (default: 12)
@@ -106,8 +104,7 @@ Fetch filtered series -> Fetch events + nested markets per series
   -> Filter out already-screened pairs (unless --rescan)
   -> LLM screens each pair for logical implication (A YES -> B YES?)
   -> Store ALL results in DB (including "none" confidence)
-  -> Enrich confirmed pairs with current ask prices
-  -> Output JSON + CSV + terminal summary
+  -> Print terminal summary
 ```
 
 ### Pre-filtering strategy
