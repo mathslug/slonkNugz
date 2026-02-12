@@ -712,9 +712,15 @@ def main() -> None:
         print("No new pairs to screen.")
         sys.exit(0)
 
-    if args.max_pairs and len(pairs) > args.max_pairs:
-        print(f"  Capping to {args.max_pairs} pairs (--max-pairs)")
-        pairs = pairs[:args.max_pairs]
+    if args.max_pairs is not None:
+        if args.max_pairs == 0:
+            print("--max-pairs 0: skipping LLM screening.")
+            print_summary([])
+            conn.close()
+            return
+        if len(pairs) > args.max_pairs:
+            print(f"  Capping to {args.max_pairs} pairs (--max-pairs)")
+            pairs = pairs[:args.max_pairs]
 
     # ── LLM screening ────────────────────────────────────────────────────
     model = args.model
