@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotent server provisioning for kalshi-arb on Debian 12.
+# Idempotent server provisioning for kalshi-arb on AlmaLinux / RHEL.
 # Run as root: sudo bash deploy/setup.sh
 set -euo pipefail
 
@@ -7,15 +7,15 @@ APP_USER=kalshi
 APP_DIR=/opt/kalshi-arb
 DATA_DIR=/var/lib/kalshi-arb
 LOG_DIR=/var/log/kalshi-arb
+DOMAIN=slonkn.mathslug.com
 
 echo "==> Creating system user and directories"
-id -u "$APP_USER" &>/dev/null || useradd --system --shell /usr/sbin/nologin "$APP_USER"
+id -u "$APP_USER" &>/dev/null || useradd --system --shell /sbin/nologin "$APP_USER"
 mkdir -p "$DATA_DIR" "$DATA_DIR/backups" "$LOG_DIR"
 chown "$APP_USER:$APP_USER" "$DATA_DIR" "$DATA_DIR/backups" "$LOG_DIR"
 
 echo "==> Installing system packages"
-apt-get update -qq
-apt-get install -y -qq nginx certbot python3-certbot-nginx apache2-utils
+dnf install -y -q nginx certbot python3-certbot-nginx httpd-tools cronie
 
 # Install uv if not present
 if ! command -v uv &>/dev/null; then
@@ -36,27 +36,38 @@ cd "$APP_DIR"
 uv sync
 
 echo "==> Writing nginx config"
-cat > /etc/nginx/sites-available/kalshi-arb <<'NGINX'
+# RHEL uses conf.d instead of sites-available/sites-enabled
+cat > /etc/nginx/conf.d/kalshi-arb.conf <<NGINX
 server {
     listen 80;
-    server_name mathslug.me;
+    server_name $DOMAIN;
 
     auth_basic "Restricted";
     auth_basic_user_file /etc/nginx/.htpasswd;
 
     location / {
         proxy_pass http://unix:/run/kalshi-arb/kalshi-arb.sock;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 NGINX
 
-ln -sf /etc/nginx/sites-available/kalshi-arb /etc/nginx/sites-enabled/kalshi-arb
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
+# Remove default server block if it exists in the main config
+# (RHEL nginx.conf has a default server{} block — comment it out)
+if grep -q 'listen.*80 default_server' /etc/nginx/nginx.conf; then
+    sed -i '/^    server {/,/^    }/s/^/#/' /etc/nginx/nginx.conf
+fi
+
+nginx -t && systemctl enable --now nginx && systemctl reload nginx
+
+# Open firewall for HTTP/HTTPS
+if command -v firewall-cmd &>/dev/null; then
+    firewall-cmd --permanent --add-service=http --add-service=https 2>/dev/null || true
+    firewall-cmd --reload 2>/dev/null || true
+fi
 
 echo "==> Writing systemd service"
 cat > /etc/systemd/system/kalshi-arb.service <<EOF
@@ -80,11 +91,14 @@ EOF
 systemctl daemon-reload
 systemctl enable kalshi-arb
 
+echo "==> Enabling crond"
+systemctl enable --now crond
+
 echo "==> Writing cron jobs"
 cat > /etc/cron.d/kalshi-arb <<CRON
 # Kalshi Arb scheduled jobs (times in UTC)
 SHELL=/bin/bash
-PATH=/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/.local/bin
 
 # Fetch Treasury yields daily at 6:00 AM ET (10:00 UTC)
 0 10 * * * $APP_USER $APP_DIR/deploy/run.sh fetch_yields.py --db $DATA_DIR/kalshi_arb.db >> $LOG_DIR/cron.log 2>&1
@@ -107,9 +121,9 @@ chmod 644 /etc/cron.d/kalshi-arb
 echo "==> Setup complete!"
 echo ""
 echo "Remaining manual steps:"
-echo "  1. Create htpasswd:  sudo htpasswd -c /etc/nginx/.htpasswd <username>"
-echo "  2. Create env file:  sudo -u $APP_USER nano $DATA_DIR/.env"
+echo "  1. Create htpasswd:  htpasswd -c /etc/nginx/.htpasswd <username>"
+echo "  2. Create env file:  nano $DATA_DIR/.env"
 echo "     (ANTHROPIC_API_KEY, MAILGUN_API_KEY, MAILGUN_DOMAIN, NOTIFY_EMAIL)"
-echo "  3. Copy DB:          sudo cp kalshi_arb.db $DATA_DIR/ && sudo chown $APP_USER:$APP_USER $DATA_DIR/kalshi_arb.db"
-echo "  4. Start webapp:     sudo systemctl start kalshi-arb"
-echo "  5. SSL:              sudo certbot --nginx -d mathslug.me"
+echo "  3. Copy DB:          cp kalshi_arb.db $DATA_DIR/ && chown $APP_USER:$APP_USER $DATA_DIR/kalshi_arb.db"
+echo "  4. Start webapp:     systemctl start kalshi-arb"
+echo "  5. SSL:              certbot --nginx -d $DOMAIN"
