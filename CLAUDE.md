@@ -231,5 +231,5 @@ NOTIFY_EMAIL=...
 
 ### GitHub Actions secrets
 
-- `DROPLET_IP` -- server IP address
+- `DROPLET_URL` -- server hostname (e.g. slonkn.mathslug.com)
 - `SSH_PRIVATE_KEY` -- deploy user's private key
