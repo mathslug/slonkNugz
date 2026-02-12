@@ -15,7 +15,9 @@ jobs:
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e
             cd /opt/kalshi-arb
+            git reset --hard origin/main
             git pull origin main
             uv sync
             sudo systemctl restart kalshi-arb
