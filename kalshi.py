@@ -80,8 +80,8 @@ def fetch_orderbook(ticker: str) -> dict:
         return [(float(price), int(qty)) for price, qty in raw]
 
     return {
-        "yes": parse_levels(data.get("yes_dollars", [])),
-        "no": parse_levels(data.get("no_dollars", [])),
+        "yes": parse_levels(data.get("yes_dollars") or []),
+        "no": parse_levels(data.get("no_dollars") or []),
     }
 
 
