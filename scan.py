@@ -168,17 +168,218 @@ def group_by_entity(markets: list[dict]) -> dict[str, list[dict]]:
     return multi_series
 
 
+SPORT_FAMILIES = {
+    # ── Racket sports ─────────────────────────────────────────────────
+    "tennis": [
+        "KXATP", "KXWTA",
+        "KXFOMEN", "KXFOWOMEN", "KXFOPEN",             # French Open
+        "KXGRANDSLAM",
+        "KXAOMEN", "KXAOWOMEN",                         # Australian Open
+        "KXUSOMEN", "KXUSOPEN", "KXUSOWOMEN",           # US Open (KXUSOPENCUP → soccer via longer match)
+        "KXWMENSINGLES", "KXWWOMENSINGLES",              # Wimbledon
+        "KXDAVISCUP", "KXUNITEDCUP", "KXLAVERCUP",      # team events
+        "KXTENNIS", "KXEXHIBITION", "KXBATTLEOFSEXES", "KXSIXKINGS",
+        "KXDDF", "KXCHALLENGERMATCH",
+    ],
+    "table_tennis": ["KXTABLETENNIS", "KXTTELITE"],
+
+    # ── American pro team sports ──────────────────────────────────────
+    "mlb": [
+        "KXMLB", "KXLEADERMLB",
+        "KXNEXTTEAMMLB", "KXCITYMLBEXPAND",
+        "KXTEAMSINWS", "KXWSAL", "KXWSNL",
+        "KXNLGAME", "KXNLMVP", "KXALMVP",
+    ],
+    "nba": [
+        "KXNBA", "KXRECORDNBA", "KXLEADERNBA",
+        "KXCITYNBAEXPAND", "KXNEXTTEAMNBA",
+        "KXCOACHOUTNBA", "KXNEXTCOACHOUTNBA",
+        "KXTRADEOFFNBA", "KXTEAMSINNBAF",
+        "KXMVENBA",
+        "KXFIRSTPICKNBA", "KXTOP3NBADRAFT", "KXPLAYEROPTIONNBA",
+        "KXALLSTARROSTER",
+    ],
+    "wnba": ["KXWNBA"],
+    "nfl": [
+        "KXNFL", "KXSB", "KXRECORDNFL", "KXLEADERNFL",
+        "KXSUPERBOWL",                                  # NOT KXSUP (collides with KXSUPERLIG soccer)
+        "KXNEXTTEAMNFL", "KXCOACHOUTNFL", "KXNEXTCOACHOUTNFL", "KXNEXTNFLCOACH",
+        "KXSTARTINGQB",
+        "KXTRADEOFFNFL", "KXTEAMSINSB",
+        "KXMVENFL",
+        "KXAFC", "KXNFC",                               # conference champs (KXAFCON/KXAFCCL → soccer via longer match)
+    ],
+    "nhl": [
+        "KXNHL",
+        "KXTEAMSINSC", "KXCONNSMYTHE", "KXCANADACUP",
+    ],
+    "ufl": ["KXUFL"],
+
+    # ── NCAA ──────────────────────────────────────────────────────────
+    "ncaa_bball": [
+        "KXNCAAMB", "KXNCAAWB", "KXNCAAB",              # men's / women's / conf tournaments
+        "KXMARMAD", "KXMAKEMARMAD", "KXWMARMAD",         # March Madness
+        "KXBIG12", "KXBIG10", "KXBIGEAST",               # conf reg season
+        "KXACC", "KXSEC", "KXWCC", "KXA10", "KXAAC",
+        "KXWMA", "KXMWR",
+        "KXNCAANIT",
+    ],
+    "ncaa_football": [
+        "KXNCAAF",
+        "KXNCAAPLAYOFF",
+        "KXCOACHOUTNCAAFB",
+        "KXCFB", "KXCFP",                               # college football playoff
+        "KXHEISMAN", "KXDEFHEISMAN",
+    ],
+    "ncaa_baseball": ["KXNCAABASE", "KXNCAAMBACH"],
+    "ncaa_hockey":   ["KXNCAAHOCK"],
+    "ncaa_lacrosse": ["KXNCAALAX", "KXNCAAMLAX", "KXLAX"],
+
+    # ── Soccer ────────────────────────────────────────────────────────
+    "soccer": [
+        # England
+        "KXEPL", "KXPREMIERLEAGUE",
+        "KXEFL", "KXFACUP", "KXEFLCUP",
+        "KXEWSL", "KXPFAPOY",
+        # Spain
+        "KXLALIGA", "KXCOPADELREY", "KXESPSUPERCUP",
+        # Germany
+        "KXBUNDESLIGA", "KXDFBPOKAL",
+        # Italy
+        "KXSERIEA", "KXSERIEB", "KXCOPPAITALIA", "KXITASUPERCUP",
+        # France
+        "KXLIGUE1", "KXCOUPEDEFRANCE", "KXFRASUPERCUP",
+        # Netherlands
+        "KXEREDIVISIE", "KXKNVBCUP",
+        # Portugal
+        "KXLIGAPORTUGAL", "KXTACAPORT",
+        # Other European
+        "KXBEL",                                         # Belgian Pro League
+        "KXSUPERLIG",                                    # Turkish Super Lig (NOT KXSUP!)
+        "KXDENSUPERLIGA", "KXDANISHSUPERLIGA",
+        "KXEKSTRAKLASA",
+        "KXSLGREECE", "KXSCOTTISHPREM", "KXSWISSLEAGUE", "KXHNL",
+        # Americas
+        "KXMLS", "KXNWSL", "KXLIGAMX", "KXBRASILEIRO", "KXARGPREMDIV",
+        "KXUSOPENCUP",
+        # Asia / Middle East / Africa
+        "KXSAUDIPL", "KXJLEAGUE", "KXKLEAGUE", "KXALEAGUE",
+        "KXAFCON", "KXAFCCL",                            # longer than KXAFC (→ NFL)
+        # European cups
+        "KXUCL", "KXUEL", "KXUECL", "KXUEFA", "KXCLUBWC",
+        # International
+        "KXFIFA", "KXMENWORLDCUP", "KXMWORLDCUP",
+        "KXWCGAME", "KXWCGOAL", "KXWCGROUP", "KXWCROUND",
+        "KXINTLFRIENDLY",
+        # Generic
+        "KXSOCCER", "KXLEADERUCLGOALS", "KXBALLONDOR",
+    ],
+
+    # ── Combat sports ─────────────────────────────────────────────────
+    "boxing":  ["KXBOXING"],
+    "ufc":     ["KXUFC"],
+
+    # ── Motorsport ────────────────────────────────────────────────────
+    "f1":      ["KXF1"],
+    "nascar":  ["KXNASCAR"],
+    "indycar": ["KXINDY500"],
+
+    # ── Golf ──────────────────────────────────────────────────────────
+    "golf": [
+        "KXPGA", "KXTGL", "KXLIV", "KXDPWORLDTOUR",
+        "KXMASTERS", "KXTHEOPEN",
+        "KXSCOTTIESLAM", "KXHOLEINONE", "KXRYDERCUP",
+        "KXGENESISINVITATIONAL", "KXPHOENIXOPEN",
+    ],
+
+    # ── Other individual sports ───────────────────────────────────────
+    "darts":   ["KXPREMDARTS", "KXDARTSMATCH"],
+    "chess": [
+        "KXCHESS", "KXFIDE", "KXFCSOUTHAFRICA", "KXWEISSENHAUS",
+        "KXNORWAYCHESS", "KXSINQUEFIELD", "KXSPEEDCHESS", "KXSAGRANDSLAM",
+    ],
+    "cricket": [
+        "KXCRICKET", "KXIPL", "KXWPL",
+        "KXASIACUPCRICKET", "KXT20", "KXSSHIELD",
+    ],
+    "rugby":   ["KXRUGBY", "KXSIXNATIONS"],
+    "surfing": ["KXSURF", "KXWOTW"],
+    "cycling": ["KXTOURDEFRANCE"],
+    "pickleball": ["KXPICKLEBALL"],
+    "padel":   ["KXPPL"],
+
+    # ── Esports ───────────────────────────────────────────────────────
+    "esports": [
+        "KXCS2", "KXCSGO", "KXVALORANT", "KXLOL", "KXLEAGUE",
+        "KXDOTA2", "KXOVERWATCH", "KXCOD",
+        "KXBRAWLSTARS", "KXPUBG", "KXR6", "KXCROSSFIRE",
+        "KXEWC",                                         # Esports World Cup
+        "KXPGL", "KXSTARLADDER",
+        "KXMIDSEASONINVITATIONAL", "KXBLASTRIVALS", "KXBOUNTY",
+        "KXVALGC", "KXVALPL", "KXVCCHAMPIONS",
+        "KXWORLDSMVP",                                   # must be longer than KXWO (→ winter olympics)
+    ],
+
+    # ── International basketball ──────────────────────────────────────
+    "basketball_intl": [
+        "KXACBGAME", "KXBBLGAME", "KXGBLGAME", "KXNBLGAME",
+        "KXARGLNB", "KXCBA",
+        "KXEUROCUP", "KXEUROLEAGUE",
+        "KXFIBACHAMP", "KXFIBAECUP",
+        "KXJBLEAGUE", "KXKBL", "KXBSL", "KXVTB", "KXLNBELITE",
+        "KXUNRIVALED", "KXBBSERIEA", "KXABAGAME", "KXTNCBASKETBALL",
+    ],
+
+    # ── International hockey ──────────────────────────────────────────
+    "hockey_intl": [
+        "KXIIHF", "KXDEL", "KXELH", "KXKHL", "KXLIIGA", "KXSHL", "KXAHL",
+    ],
+
+    # ── Winter Olympics ───────────────────────────────────────────────
+    "winter_olympics": ["KXWO"],
+
+    # ── Other leagues ─────────────────────────────────────────────────
+    "cfl":     ["KXGREYCUP"],
+    "frisbee": ["KXUFA"],
+}
+
+# Reverse lookup: prefix -> sport (longest prefixes first for correct matching)
+_PREFIX_TO_SPORT: dict[str, str] = {}
+for _sport, _prefixes in SPORT_FAMILIES.items():
+    for _prefix in _prefixes:
+        _PREFIX_TO_SPORT[_prefix] = _sport
+_SORTED_PREFIXES = sorted(_PREFIX_TO_SPORT.keys(), key=len, reverse=True)
+
+
+def _get_sport(series_ticker: str) -> str | None:
+    """Return the sport family for a series ticker, or None if unknown."""
+    for prefix in _SORTED_PREFIXES:
+        if series_ticker.startswith(prefix):
+            return _PREFIX_TO_SPORT[prefix]
+    return None
+
+
 def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, dict]]:
     """Generate cross-series candidate pairs for each entity.
 
     Only pairs markets from different series — same-series pairs are never
-    implication relationships.
+    implication relationships. Skips pairs where both markets have a known
+    sport and the sports differ (cross-sport noise).
     """
     pairs = []
+    filtered_count = 0
     for entity, entity_markets in groups.items():
         for a, b in combinations(entity_markets, 2):
             if a["series_ticker"] != b["series_ticker"]:
+                sport_a = _get_sport(a["series_ticker"])
+                sport_b = _get_sport(b["series_ticker"])
+                if sport_a and sport_b and sport_a != sport_b:
+                    filtered_count += 1
+                    continue
                 pairs.append((a, b))
+    if filtered_count:
+        log.info("Filtered %d cross-sport pairs", filtered_count)
+        print(f"  Filtered {filtered_count} cross-sport pairs")
     return pairs
 
 
@@ -186,24 +387,23 @@ def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, 
 
 SCREENING_PROMPT = """\
 /no_think
-You are analyzing Kalshi prediction market contracts to find implication relationships.
+For each pair of events below, determine if one event logically implies the other. Check both directions.
 
-An implication relationship exists when one contract resolving YES **logically guarantees** another also resolves YES. For example:
-- "Player X wins the French Open" YES → "Player X wins a Grand Slam" YES (winning FO is one way to win a GS)
-- "Team Y wins the Super Bowl" YES → "Team Y makes the playoffs" YES
+"A implies B" means: if A happened, B **must** also have happened (or must happen). It is a strict logical guarantee, not just likely or correlated.
 
-For each candidate pair below, determine if such an implication exists in either direction.
+Examples:
+- "Player X wins the French Open" implies "Player X wins a Grand Slam" ✓ (the French Open IS a Grand Slam)
+- "Team Y wins the Super Bowl" implies "Team Y wins the AFC/NFC Championship" ✓ (you must win your conference to reach the Super Bowl)
+- "Team Y wins the Super Bowl" implies "Team Y makes the playoffs" ✓ (same logic)
+- "Team Y wins the AFC Championship" implies "Team Y wins the Super Bowl" ✗ (they APPEAR in the Super Bowl but could LOSE — appearing != winning)
+- "Team Y wins their division" implies "Team Y wins the championship" ✗ (they could lose in the playoffs)
+- "Team Y wins the championship" implies "Team Y wins their division" ✗ (wild card teams can win championships without winning their division)
 
-IMPORTANT:
-- Read the rules_primary carefully — some markets have non-obvious resolution conditions
-- If uncertain, use "low" confidence rather than "none" — err toward inclusion
-- Think about logical necessity, not just correlation
-
-Return a JSON object (no markdown fencing) with a "results" key containing an array with one object per pair:
+Return a JSON object (no markdown fencing) with a "results" key containing one object per pair:
 {"results": [
   {
-    "ticker_a": "Market A ticker (copied exactly from input)",
-    "ticker_b": "Market B ticker (copied exactly from input)",
+    "ticker_a": "Event A ticker (copied exactly from input)",
+    "ticker_b": "Event B ticker (copied exactly from input)",
     "antecedent_ticker": "..." or null,
     "consequent_ticker": "..." or null,
     "confidence": "high" | "medium" | "low" | "none",
@@ -211,10 +411,11 @@ Return a JSON object (no markdown fencing) with a "results" key containing an ar
   }
 ]}
 
-IMPORTANT: "ticker_a" and "ticker_b" MUST be copied exactly from the Market A and Market B tickers shown in each pair.
+IMPORTANT: "ticker_a" and "ticker_b" MUST be copied exactly from the Event A and Event B tickers shown in each pair.
 
-"confidence" of "none" means no implication relationship exists — set antecedent_ticker and consequent_ticker to null.
-"antecedent_ticker" is the MORE SPECIFIC market (e.g., "wins French Open"), "consequent_ticker" is the BROADER market (e.g., "wins a Grand Slam").
+"confidence" of "none" means no implication in either direction — set antecedent_ticker and consequent_ticker to null.
+"antecedent_ticker" is the event that implies the other. "consequent_ticker" is the event that is implied.
+If uncertain, use "low" confidence rather than "none" — err toward inclusion.
 
 CANDIDATE PAIRS:
 """
@@ -224,13 +425,13 @@ def format_pair_for_llm(idx: int, a: dict, b: dict) -> str:
     """Format a candidate pair for the LLM prompt."""
     return (
         f"\n--- Pair {idx} ---\n"
-        f"Market A:\n"
+        f"Event A:\n"
         f"  ticker: {a['ticker']}\n"
         f"  title: {a['title']}\n"
         f"  rules: {a['rules_primary'][:500]}\n"
         f"  expiration: {a['expected_expiration_time']}\n"
         f"\n"
-        f"Market B:\n"
+        f"Event B:\n"
         f"  ticker: {b['ticker']}\n"
         f"  title: {b['title']}\n"
         f"  rules: {b['rules_primary'][:500]}\n"

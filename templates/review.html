@@ -3,6 +3,13 @@
 {% block content %}
 <h2>{{ title }} ({{ pairs|length }})</h2>
 
+<nav style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
+  <a href="?"{%if not confidence %} aria-current="page"{% endif %} role="button" class="{% if not confidence %}primary{% else %}outline{% endif %}" style="padding:4px 12px;font-size:0.85rem">All</a>
+  {% for level in ["high", "medium", "low"] %}
+  <a href="?confidence={{ level }}"{%if confidence == level %} aria-current="page"{% endif %} role="button" class="{% if confidence == level %}primary{% else %}outline{% endif %}" style="padding:4px 12px;font-size:0.85rem">{{ level|capitalize }}</a>
+  {% endfor %}
+</nav>
+
 {% if not pairs %}
 <p>No pairs to show.</p>
 {% else %}

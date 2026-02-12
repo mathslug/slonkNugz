@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Evaluate confirmed arb pairs against live orderbooks.
+"""Evaluate arb pairs against live orderbooks.
 
-Fetches orderbooks for all human-confirmed pairs, finds optimal contract
-counts where yield exceeds the hurdle, and stores results in the DB.
+Fetches orderbooks for confirmed or high-confidence pairs, finds optimal
+contract counts where yield exceeds the hurdle, and stores results in the DB.
 
 Usage:
-    uv run evaluate.py [--db kalshi_arb.db] [--max-n 500]
+    uv run evaluate.py                      # human-confirmed pairs (default)
+    uv run evaluate.py --mode high          # high-confidence unreviewed pairs
+    uv run evaluate.py --mode high --max-n 500
 """
 
 import argparse
@@ -37,6 +39,10 @@ def main() -> None:
         help="max contracts to search for optimal fill (default: 500)",
     )
     parser.add_argument(
+        "--mode", choices=["confirmed", "high"], default="confirmed",
+        help="confirmed = human-approved pairs, high = high-confidence unreviewed (default: confirmed)",
+    )
+    parser.add_argument(
         "--log-file", default="evaluate.log",
         help="log file path (default: evaluate.log)",
     )
@@ -52,14 +58,16 @@ def main() -> None:
     )
 
     conn = db_mod.get_connection(args.db)
-    pairs = db_mod.get_pairs_for_review(conn, "confirmed")
+    db_status = "confirmed" if args.mode == "confirmed" else "high_unreviewed"
+    pairs = db_mod.get_pairs_for_review(conn, db_status)
 
     if not pairs:
-        print("No confirmed pairs to evaluate.")
+        print(f"No {args.mode} pairs to evaluate.")
         conn.close()
         sys.exit(0)
 
-    print(f"Evaluating {len(pairs)} confirmed pairs (max_n={args.max_n})...\n")
+    label = "human-confirmed" if args.mode == "confirmed" else "high-confidence unreviewed"
+    print(f"Evaluating {len(pairs)} {label} pairs (max_n={args.max_n})...\n")
 
     results = []
     for i, pair in enumerate(pairs, 1):

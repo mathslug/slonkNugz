@@ -24,12 +24,19 @@ def create_app(db_path: str = DB_PATH) -> Flask:
         conn.close()
         return render_template("base.html", page="dashboard", stats=stats)
 
+    def _filter_by_confidence(pairs, confidence):
+        if confidence and confidence in ("high", "medium", "low"):
+            return [p for p in pairs if p.get("confidence") == confidence]
+        return pairs
+
     @app.route("/review")
     def review():
         conn = get_conn()
         pairs = db_mod.get_pairs_for_review(conn, "unreviewed")
         conn.close()
-        return render_template("review.html", pairs=pairs, status="unreviewed", title="Unreviewed Pairs")
+        conf = request.args.get("confidence")
+        pairs = _filter_by_confidence(pairs, conf)
+        return render_template("review.html", pairs=pairs, status="unreviewed", title="Unreviewed Pairs", confidence=conf)
 
     @app.route("/reviewed")
     def reviewed():
@@ -37,7 +44,9 @@ def create_app(db_path: str = DB_PATH) -> Flask:
         confirmed = db_mod.get_pairs_for_review(conn, "confirmed")
         rejected = db_mod.get_pairs_for_review(conn, "rejected")
         conn.close()
-        return render_template("review.html", pairs=confirmed + rejected, status="reviewed", title="Reviewed Pairs")
+        conf = request.args.get("confidence")
+        pairs = _filter_by_confidence(confirmed + rejected, conf)
+        return render_template("review.html", pairs=pairs, status="reviewed", title="Reviewed Pairs", confidence=conf)
 
     @app.route("/pair/<int:pair_id>")
     def pair_detail(pair_id):

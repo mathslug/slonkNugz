@@ -456,11 +456,13 @@ def get_pairs_for_review(conn: sqlite3.Connection, status: str) -> list[dict]:
     sorted by cost ascending then confidence descending.
     """
     if status == "unreviewed":
-        where = "cp.human_review IS NULL AND cp.confidence != 'none'"
+        where = "cp.human_review IS NULL AND cp.confidence != 'none' AND cp.antecedent_ticker IS NOT NULL AND cp.consequent_ticker IS NOT NULL"
     elif status == "confirmed":
         where = "cp.human_review = 'confirmed'"
     elif status == "rejected":
         where = "cp.human_review = 'rejected'"
+    elif status == "high_unreviewed":
+        where = "cp.human_review IS NULL AND cp.confidence = 'high' AND cp.antecedent_ticker IS NOT NULL AND cp.consequent_ticker IS NOT NULL"
     else:
         raise ValueError(f"Invalid status: {status}")
 
