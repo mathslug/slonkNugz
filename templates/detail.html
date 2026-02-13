@@ -62,7 +62,7 @@
     <strong>Strategy:</strong> Buy NO on antecedent + YES on consequent<br>
     <strong>Yield:</strong>
     {% if pair.annualized_yield is not none %}
-      {{ "%.2f"|format(pair.annualized_yield * 100) }}%
+      {% if pair.annualized_yield > 9.99 %}&gt;999%{% else %}{{ "%.2f"|format(pair.annualized_yield * 100) }}%{% endif %}
       {% if pair.annualized_yield > 0 %}
         <mark>PROFITABLE</mark>
       {% else %}
@@ -88,7 +88,7 @@
     <strong>Excess yield:</strong>
     {% if pair.excess_yield is not none %}
       <span style="color:{{ 'green' if pair.excess_yield > 0 else 'red' }};font-weight:bold">
-        {{ "%+.2f"|format(pair.excess_yield * 100) }}%
+        {% if pair.excess_yield > 9.99 %}&gt;999%{% elif pair.excess_yield < -9.99 %}&lt;-999%{% else %}{{ "%+.2f"|format(pair.excess_yield * 100) }}%{% endif %}
       </span>
       {% if pair.excess_yield > 0 %}
         <mark>PROFITABLE</mark>
@@ -113,6 +113,7 @@
   <form method="post" action="/pair/{{ pair.id }}/review">
     <div class="grid">
       <button type="submit" name="decision" value="confirmed">Confirm</button>
+      <button type="submit" name="decision" value="reversed" class="contrast">Reverse &amp; Confirm</button>
       <button type="submit" name="decision" value="rejected" class="secondary">Reject</button>
     </div>
   </form>

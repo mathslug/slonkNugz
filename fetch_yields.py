@@ -60,7 +60,7 @@ def fetch_csv(year: int) -> list[dict]:
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch Treasury CMT yield curve data")
-    parser.add_argument("--db", default="kalshi_arb.db", help="SQLite database path")
+    parser.add_argument("--db", default="slonk_arb.db", help="SQLite database path")
     args = parser.parse_args()
 
     conn = db_mod.get_connection(args.db)

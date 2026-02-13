@@ -30,18 +30,15 @@
   <figure>
   <table>
     <thead>
-      <tr>
-        <th>1M</th><th>1.5M</th><th>2M</th><th>3M</th><th>4M</th><th>6M</th>
-        <th>1Y</th><th>2Y</th><th>3Y</th><th>5Y</th><th>7Y</th>
-        <th>10Y</th><th>20Y</th><th>30Y</th>
-      </tr>
+      <tr><th>Tenor</th><th>Yield</th></tr>
     </thead>
     <tbody>
+      {% for col, label in [("m1","1M"),("m1h","1.5M"),("m2","2M"),("m3","3M"),("m4","4M"),("m6","6M"),("y1","1Y"),("y2","2Y"),("y3","3Y"),("y5","5Y"),("y7","7Y"),("y10","10Y"),("y20","20Y"),("y30","30Y")] %}
       <tr>
-        {% for col in ["m1","m1h","m2","m3","m4","m6","y1","y2","y3","y5","y7","y10","y20","y30"] %}
+        <td>{{ label }}</td>
         <td>{% if latest_yields[col] is not none %}{{ "%.2f"|format(latest_yields[col]) }}%{% else %}N/A{% endif %}</td>
-        {% endfor %}
       </tr>
+      {% endfor %}
     </tbody>
   </table>
   </figure>

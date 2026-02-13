@@ -12,7 +12,7 @@ Seven code files + templates + deploy scripts:
 
 - **`scan.py`** -- discovers arb pairs automatically. Fetches sports markets from Kalshi, groups by entity (`yes_sub_title`), generates cross-series candidate pairs, screens via Claude Haiku for logical implication, persists to SQLite DB, prints terminal summary.
 
-- **`db.py`** -- pure SQLite persistence functions. Every function takes `conn` as first arg — no global state. Tables: `tickers`, `prices`, and `candidate_pairs`. Designed for REPL use: `import db; conn = db.get_connection("kalshi_arb.db")`.
+- **`db.py`** -- pure SQLite persistence functions. Every function takes `conn` as first arg — no global state. Tables: `tickers`, `prices`, and `candidate_pairs`. Designed for REPL use: `import db; conn = db.get_connection("slonk_arb.db")`.
 
 - **`evaluate.py`** -- evaluates confirmed arb pairs against live orderbooks. Fetches orderbooks, finds optimal contract count via binary search, stores results in DB.
 
@@ -47,7 +47,7 @@ uv run scan.py --model claude-haiku-4-5-20251001 --batch-size 12
 
 ### Incremental scanning with DB
 ```
-uv run scan.py --filter tennis --db kalshi_arb.db                  # fetch + screen new pairs
+uv run scan.py --filter tennis --db slonk_arb.db                  # fetch + screen new pairs
 uv run scan.py --from-db                                            # re-use tickers in DB, screen unscreened pairs
 uv run scan.py --from-db --rescan                                   # re-screen all pairs
 ```
@@ -62,7 +62,12 @@ uv run evaluate.py --max-n 500 --log-file eval.log  # custom max contracts + log
 ### Review webapp
 ```
 uv run app.py                                       # http://localhost:5001
-KALSHI_DB=my.db uv run app.py                       # custom DB path
+SLONK_DB=my.db uv run app.py                       # custom DB path
+```
+
+### Refresh prod DB locally
+```
+scp almalinux@slonkn.mathslug.com:/var/lib/kalshi-arb/kalshi_arb.db kalshi_arb_prod.db
 ```
 
 ### Import from legacy JSON cache
@@ -81,14 +86,14 @@ uv run python -c "import db; conn = db.get_connection(); db.import_from_cache(co
 - `--min-volume` -- exclude markets below this volume (default: 0)
 - `--batch-size` -- pairs per LLM call (default: 12)
 - `--category` -- Kalshi category (default: Sports)
-- `--db` -- SQLite database path (default: kalshi_arb.db)
+- `--db` -- SQLite database path (default: slonk_arb.db)
 - `--from-db` -- skip fetching, use tickers already in DB
 - `--rescan` -- re-screen all pairs even if already evaluated in DB
 - `--max-pairs` -- cap number of new pairs to screen per run (limits LLM calls)
 - `--log-file` -- log file path (default: scan.log)
 
 ### CLI args -- evaluate.py
-- `--db` -- SQLite database path (default: kalshi_arb.db)
+- `--db` -- SQLite database path (default: slonk_arb.db)
 - `--max-n` -- max contracts to search for optimal fill (default: 500)
 - `--mode` -- `confirmed` (human-approved, default) or `high` (high-confidence unreviewed)
 - `--log-file` -- log file path (default: evaluate.log)
@@ -117,7 +122,7 @@ Uses Claude Haiku via the Anthropic API (~$0.03/scan). The prompt requests `tick
 
 ## Database
 
-SQLite database (`kalshi_arb.db` by default) with three tables:
+SQLite database (`slonk_arb.db` by default) with three tables:
 
 - **`tickers`** -- all market info fetched from Kalshi (ticker, series, event, title, prices, volume, timestamps). Primary key: `ticker`. Price columns are the "latest" cache, overwritten each scan.
 - **`prices`** -- append-only price history. One row per ticker per scan with `last_price`, `yes_ask`, `no_ask`, and `recorded_at` timestamp. Populated by `record_prices()` during each scan.
@@ -192,16 +197,16 @@ Deployed to a single Digital Ocean droplet (Debian 12) at `mathslug.me`.
 ### Server layout
 
 ```
-/opt/kalshi-arb/              # Code (git clone, deployed via GitHub Actions)
-/var/lib/kalshi-arb/          # Persistent data (DB, .env, backups/)
-/var/log/kalshi-arb/          # Log files (scan.log, evaluate.log, cron.log)
+/opt/slonk-arb/              # Code (git clone, deployed via GitHub Actions)
+/var/lib/slonk-arb/          # Persistent data (DB, .env, backups/)
+/var/log/slonk-arb/          # Log files (scan.log, evaluate.log, cron.log)
 ```
 
 ### Stack
 
 - **nginx** -- reverse proxy with basic auth + Let's Encrypt SSL
-- **gunicorn** -- WSGI server via systemd (`kalshi-arb.service`)
-- **cron** -- scheduled jobs via `/etc/cron.d/kalshi-arb`
+- **gunicorn** -- WSGI server via systemd (`slonk-arb.service`)
+- **cron** -- scheduled jobs via `/etc/cron.d/slonk-arb`
 - **Mailgun** -- email notifications for BUY signals
 
 ### Deploy scripts
@@ -217,7 +222,7 @@ Deployed to a single Digital Ocean droplet (Debian 12) at `mathslug.me`.
 | 5:30 AM | 09:30 | `scan.py --category Sports --max-pairs 0` -- fetch all sports tickers into DB (no LLM) |
 | 6:00 AM | 10:00 | `fetch_yields.py` -- Treasury yield curve |
 | 6:30 AM | 10:30 | `scan.py --from-db --min-volume 200` && `evaluate.py` && `evaluate.py --mode high` (chained) |
-| Sun 3 AM | Sun 7:00 | DB backup to `/var/lib/kalshi-arb/backups/` |
+| Sun 3 AM | Sun 7:00 | DB backup to `/var/lib/slonk-arb/backups/` |
 
 ### Email notifications
 

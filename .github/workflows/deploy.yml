@@ -17,15 +17,15 @@ jobs:
           envs: ANTHROPIC_KEY
           script: |
             set -e
-            cd /opt/kalshi-arb
+            cd /opt/slonk-arb
             git reset --hard origin/main
             git pull origin main
             uv sync
-            if [ ! -f /var/lib/kalshi-arb/.env ]; then
-                echo "ANTHROPIC_API_KEY=$ANTHROPIC_KEY" | sudo tee /var/lib/kalshi-arb/.env > /dev/null
-                sudo chown kalshi:kalshi /var/lib/kalshi-arb/.env
-                sudo chmod 600 /var/lib/kalshi-arb/.env
+            if [ ! -f /var/lib/slonk-arb/.env ]; then
+                echo "ANTHROPIC_API_KEY=$ANTHROPIC_KEY" | sudo tee /var/lib/slonk-arb/.env > /dev/null
+                sudo chown slonk:slonk /var/lib/slonk-arb/.env
+                sudo chmod 600 /var/lib/slonk-arb/.env
             fi
-            sudo systemctl restart kalshi-arb
+            sudo systemctl restart slonk-arb
         env:
           ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_KEY }}

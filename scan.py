@@ -166,6 +166,7 @@ SPORT_FAMILIES = {
         "KXNEXTTEAMMLB", "KXCITYMLBEXPAND",
         "KXTEAMSINWS", "KXWSAL", "KXWSNL",
         "KXNLGAME", "KXNLMVP", "KXALMVP",
+        "KXNEXTTEAMSKUBAL",                                # player destination markets
     ],
     "nba": [
         "KXNBA", "KXRECORDNBA", "KXLEADERNBA",
@@ -175,6 +176,9 @@ SPORT_FAMILIES = {
         "KXMVENBA",
         "KXFIRSTPICKNBA", "KXTOP3NBADRAFT", "KXPLAYEROPTIONNBA",
         "KXALLSTARROSTER",
+        "KXKNUEPPEL3PTREC", "KXSHAI20PTREC", "KXWINSTREAKOKC",  # player/team props
+        "KXQUADRUPLEDOUBLE",
+        "KXLBJRETIRE", "KXPLAYTOGETHERJBJT", "KXSPORTSOWNERLBJ",
     ],
     "wnba": ["KXWNBA"],
     "nfl": [
@@ -185,6 +189,7 @@ SPORT_FAMILIES = {
         "KXTRADEOFFNFL", "KXTEAMSINSB",
         "KXMVENFL",
         "KXAFC", "KXNFC",                               # conference champs (KXAFCON/KXAFCCL → soccer via longer match)
+        "KXKELCERETIRE", "KXARODGRETIRE",                # retirement props
     ],
     "nhl": [
         "KXNHL",
@@ -200,6 +205,7 @@ SPORT_FAMILIES = {
         "KXACC", "KXSEC", "KXWCC", "KXA10", "KXAAC",
         "KXWMA", "KXMWR",
         "KXNCAANIT",
+        "KXCOVEREA",                                      # EA Sports cover athlete
     ],
     "ncaa_football": [
         "KXNCAAF",
@@ -207,6 +213,7 @@ SPORT_FAMILIES = {
         "KXCOACHOUTNCAAFB",
         "KXCFB", "KXCFP",                               # college football playoff
         "KXHEISMAN", "KXDEFHEISMAN",
+        "KXNDJOINCONF", "KXCOLLEGEGAMEDAYGUEST",         # conference realignment, media props
     ],
     "ncaa_baseball": ["KXNCAABASE", "KXNCAAMBACH"],
     "ncaa_hockey":   ["KXNCAAHOCK"],
@@ -250,11 +257,17 @@ SPORT_FAMILIES = {
         "KXINTLFRIENDLY",
         # Generic
         "KXSOCCER", "KXLEADERUCLGOALS", "KXBALLONDOR",
+        # Transfers / managers / props
+        "KXJOINRONALDO", "KXJOINMESSI", "KXLAMINEYAMAL",
+        "KXNEXTMANAGERMANU", "KXNEXTMANAGEREPL",
+        "KXWINSTREAKMANU",
+        "KXTRINITYRODMANNWSL",
+        "KXDIMAYORGAME",                                 # Colombian Liga Dimayor
     ],
 
     # ── Combat sports ─────────────────────────────────────────────────
     "boxing":  ["KXBOXING"],
-    "ufc":     ["KXUFC"],
+    "ufc":     ["KXUFC", "KXCARDPRESENCEUFCWH", "KXMCGREGORFIGHTNEXT"],
 
     # ── Motorsport ────────────────────────────────────────────────────
     "f1":      ["KXF1"],
@@ -267,6 +280,7 @@ SPORT_FAMILIES = {
         "KXMASTERS", "KXTHEOPEN",
         "KXSCOTTIESLAM", "KXHOLEINONE", "KXRYDERCUP",
         "KXGENESISINVITATIONAL", "KXPHOENIXOPEN",
+        "KXBRYSONCOURSERECORDS",                         # player props
     ],
 
     # ── Other individual sports ───────────────────────────────────────
@@ -336,16 +350,29 @@ def _get_sport(series_ticker: str) -> str | None:
     return None
 
 
+ENTITY_BLOCKLIST = {
+    "Tie", "Yes",
+    "Before 2025", "Before 2026", "Before 2027", "Before 2028",
+    "Before 2029", "Before 2030", "Before 2031", "Before 2032",
+    "Before 2033", "Before 2034", "Before 2035",
+}
+
+
 def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, dict]]:
     """Generate cross-series candidate pairs for each entity.
 
     Only pairs markets from different series — same-series pairs are never
     implication relationships. Skips pairs where both markets have a known
-    sport and the sports differ (cross-sport noise).
+    sport and the sports differ (cross-sport noise). Also skips entities
+    in the ENTITY_BLOCKLIST that never produce real implications.
     """
     pairs = []
     filtered_count = 0
+    blocklist_count = 0
     for entity, entity_markets in groups.items():
+        if entity in ENTITY_BLOCKLIST:
+            blocklist_count += len(list(combinations(entity_markets, 2)))
+            continue
         for a, b in combinations(entity_markets, 2):
             if a["series_ticker"] != b["series_ticker"]:
                 sport_a = _get_sport(a["series_ticker"])
@@ -354,6 +381,9 @@ def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, 
                     filtered_count += 1
                     continue
                 pairs.append((a, b))
+    if blocklist_count:
+        log.info("Skipped %d pairs from blocklisted entities", blocklist_count)
+        print(f"  Skipped {blocklist_count} pairs from blocklisted entities")
     if filtered_count:
         log.info("Filtered %d cross-sport pairs", filtered_count)
         print(f"  Filtered {filtered_count} cross-sport pairs")
@@ -450,12 +480,15 @@ def screen_pairs_with_llm(
     pairs: list[tuple[dict, dict]],
     model: str,
     batch_size: int = 12,
+    conn: "sqlite3.Connection | None" = None,
 ) -> list[dict]:
     """Screen candidate pairs using Claude for implication checking.
 
     Batches pairs and returns ALL results (including confidence="none") so
     they can be stored in the DB to avoid re-screening. Each result dict
     includes ticker_a/ticker_b from the input pair.
+
+    If conn is provided, writes results to the DB after each batch.
     """
     results = []
     total_batches = (len(pairs) + batch_size - 1) // batch_size
@@ -536,6 +569,11 @@ def screen_pairs_with_llm(
 
             log.info("Batch %d summary: %d accepted, %d rejected, %d unmatched, %d missing",
                      batch_num, accepted, rejected, unmatched_count, len(unresulted))
+
+            # Write this batch's results to DB immediately
+            if conn is not None:
+                batch_stored = results[-accepted - rejected:]  # last N appended
+                db_mod.bulk_upsert_pair_results(conn, batch_stored, model)
         except (json.JSONDecodeError, requests.RequestException, KeyError) as e:
             log.warning("Batch %d failed: %s", batch_num, e)
             print(f"    Warning: batch {batch_num} failed: {e}")
@@ -610,8 +648,8 @@ def main() -> None:
     )
     # DB options
     parser.add_argument(
-        "--db", default="kalshi_arb.db",
-        help="SQLite database path (default: kalshi_arb.db)",
+        "--db", default="slonk_arb.db",
+        help="SQLite database path (default: slonk_arb.db)",
     )
     parser.add_argument(
         "--from-db", action="store_true",
@@ -704,11 +742,8 @@ def main() -> None:
     model = args.model
     batch_size = args.batch_size
     print(f"\nScreening {len(pairs)} pairs with {model} (batch_size={batch_size})...")
-    all_results = screen_pairs_with_llm(pairs, model, batch_size)
-
-    # ── Store all results in DB ──────────────────────────────────────────
-    stored = db_mod.bulk_upsert_pair_results(conn, all_results, model)
-    print(f"  DB: {stored} pair results stored")
+    all_results = screen_pairs_with_llm(pairs, model, batch_size, conn=conn)
+    print(f"  DB: {len(all_results)} pair results stored (incremental)")
 
     # ── Filter to confirmed for output ───────────────────────────────────
     confirmed = [r for r in all_results if r.get("confidence") != "none" and r.get("antecedent_ticker") and r.get("consequent_ticker")]

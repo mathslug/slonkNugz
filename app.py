@@ -7,7 +7,7 @@ from flask import Flask, redirect, render_template, request, url_for
 
 import db as db_mod
 
-DB_PATH = os.environ.get("KALSHI_DB", "kalshi_arb.db")
+DB_PATH = os.environ.get("SLONK_DB", "slonk_arb.db")
 
 
 def create_app(db_path: str = DB_PATH) -> Flask:
@@ -85,12 +85,15 @@ def create_app(db_path: str = DB_PATH) -> Flask:
     @app.route("/pair/<int:pair_id>/review", methods=["POST"])
     def submit_review(pair_id):
         decision = request.form.get("decision")
-        if decision not in ("confirmed", "rejected"):
+        if decision not in ("confirmed", "rejected", "reversed"):
             return "Invalid decision", 400
         conn = get_conn()
-        db_mod.set_review(conn, pair_id, decision)
+        if decision == "reversed":
+            db_mod.reverse_and_confirm(conn, pair_id)
+        else:
+            db_mod.set_review(conn, pair_id, decision)
         conn.close()
-        next_url = request.form.get("next") or url_for("review")
+        next_url = request.form.get("next") or url_for("pair_detail", pair_id=pair_id)
         return redirect(next_url)
 
     return app

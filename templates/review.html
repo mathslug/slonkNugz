@@ -20,7 +20,8 @@
       <th>Antecedent</th>
       <th>Consequent</th>
       <th>Confidence</th>
-      <th>Excess Yield</th>
+      <th>Yield</th>
+      <th>Hurdle</th>
       <th>Reasoning</th>
       {% if status == "reviewed" %}<th>Review</th>{% endif %}
       <th>Actions</th>
@@ -38,10 +39,8 @@
         <br><small>{{ p.consequent_title }}</small>
       </td>
       <td>{{ p.confidence }}</td>
-      <td{% if p.excess_yield is not none %} style="color:{{ 'green' if p.excess_yield > 0 else 'red' }};font-weight:bold"{% endif %}>
-        {% if p.excess_yield is not none %}{{ "%+.2f"|format(p.excess_yield * 100) }}%{% else %}N/A{% endif %}
-        {% if p.annualized_yield is not none %}<br><small style="color:inherit;font-weight:normal">yield: {{ "%.2f"|format(p.annualized_yield * 100) }}%</small>{% endif %}
-      </td>
+      <td>{% if p.annualized_yield is not none %}{% if p.annualized_yield > 9.99 %}&gt;999%{% else %}{{ "%.2f"|format(p.annualized_yield * 100) }}%{% endif %}{% else %}N/A{% endif %}</td>
+      <td>{% if p.hurdle_yield is not none %}{{ "%.2f"|format(p.hurdle_yield * 100) }}%{% else %}N/A{% endif %}</td>
       <td><small>{{ p.reasoning[:80] if p.reasoning else '' }}{% if p.reasoning and p.reasoning|length > 80 %}...{% endif %}</small></td>
       {% if status == "reviewed" %}<td>{{ p.human_review }}</td>{% endif %}
       <td>

@@ -1,7 +1,7 @@
 """SQLite persistence for Kalshi arbitrage scanner.
 
 All functions take a sqlite3.Connection as first arg — no global state.
-Designed for REPL use: import db; conn = db.get_connection("kalshi_arb.db")
+Designed for REPL use: import db; conn = db.get_connection("slonk_arb.db")
 """
 
 import json
@@ -127,7 +127,7 @@ def init_db(db_path: str) -> None:
     conn.close()
 
 
-def get_connection(db_path: str = "kalshi_arb.db") -> sqlite3.Connection:
+def get_connection(db_path: str = "slonk_arb.db") -> sqlite3.Connection:
     """REPL-friendly connection helper. Sets WAL mode, foreign keys, Row factory."""
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -579,6 +579,20 @@ def set_review(conn: sqlite3.Connection, pair_id: int, decision: str) -> None:
     conn.execute(
         "UPDATE candidate_pairs SET human_review = ?, reviewed_at = ? WHERE id = ?",
         (decision, _now_utc(), pair_id),
+    )
+    conn.commit()
+
+
+def reverse_and_confirm(conn: sqlite3.Connection, pair_id: int) -> None:
+    """Swap antecedent/consequent and mark pair as confirmed."""
+    conn.execute(
+        """UPDATE candidate_pairs
+           SET antecedent_ticker = consequent_ticker,
+               consequent_ticker = antecedent_ticker,
+               human_review = 'confirmed',
+               reviewed_at = ?
+           WHERE id = ?""",
+        (_now_utc(), pair_id),
     )
     conn.commit()
 

@@ -31,8 +31,8 @@ def main() -> None:
         description="Evaluate confirmed arb pairs against live orderbooks"
     )
     parser.add_argument(
-        "--db", default="kalshi_arb.db",
-        help="SQLite database path (default: kalshi_arb.db)",
+        "--db", default="slonk_arb.db",
+        help="SQLite database path (default: slonk_arb.db)",
     )
     parser.add_argument(
         "--max-n", type=int, default=500,
@@ -82,6 +82,7 @@ def main() -> None:
 
         try:
             result = evaluate_pair(pair, hurdle, args.max_n, conn=conn)
+            db_mod.insert_trade_evaluation(conn, result)
             results.append(result)
             rec = result["recommendation"].upper()
             if rec == "BUY":
@@ -115,10 +116,8 @@ def main() -> None:
         conn.close()
         sys.exit(1)
 
-    # Store results
-    stored = db_mod.bulk_insert_evaluations(conn, results)
     print(f"\n{'='*60}")
-    print(f"Results: {stored} evaluations stored")
+    print(f"Results: {len(results)} evaluations stored (incremental)")
 
     buys = [r for r in results if r["recommendation"] == "buy"]
     passes = [r for r in results if r["recommendation"] == "pass"]
