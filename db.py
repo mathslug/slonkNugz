@@ -562,7 +562,7 @@ def get_pair_detail(conn: sqlite3.Connection, pair_id: int) -> dict | None:
     else:
         d["arb_cost"] = None
     d["annualized_yield"], d["days_to_maturity"] = _compute_yield(
-        d["arb_cost"], d.get("antecedent_expiration"), d.get("consequent_expiration"),
+        d["arb_cost"], d.get("antecedent_expiration"),
     )
     d["hurdle_yield"] = compute_hurdle_yield(conn, d["days_to_maturity"])
     if d["annualized_yield"] is not None and d["hurdle_yield"] is not None:

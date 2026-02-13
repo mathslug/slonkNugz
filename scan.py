@@ -144,28 +144,6 @@ def fetch_markets(
 # ── Pre-filtering ────────────────────────────────────────────────────────────
 
 
-def group_by_entity(markets: list[dict]) -> dict[str, list[dict]]:
-    """Group markets by yes_sub_title (entity).
-
-    Only keeps entities that appear in 2+ different series, since same-series
-    markets can't form implication relationships.
-    """
-    groups: dict[str, list[dict]] = {}
-    for m in markets:
-        entity = m.get("yes_sub_title", "").strip()
-        if not entity:
-            continue
-        groups.setdefault(entity, []).append(m)
-
-    # Filter to entities in 2+ series
-    multi_series = {}
-    for entity, entity_markets in groups.items():
-        series_set = {m["series_ticker"] for m in entity_markets}
-        if len(series_set) >= 2:
-            multi_series[entity] = entity_markets
-
-    return multi_series
-
 
 SPORT_FAMILIES = {
     # ── Racket sports ─────────────────────────────────────────────────

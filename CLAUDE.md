@@ -164,6 +164,8 @@ Uses Pico CSS (CDN, classless). Kalshi links: `https://kalshi.com/markets/<event
 
 When `main.py` is imported by `evaluate.py`, its log calls flow through evaluate's `basicConfig`. When run standalone as CLI, log calls are no-ops.
 
+Both `scan.py` and `evaluate.py` open log files with `filemode="w"` (overwrite). The 10:30 scan overwrites the 09:30 fetch's `scan.log`, but the fetch run does minimal logging (no LLM calls). All `print()` output is preserved in `cron.log` via `>>` append redirect.
+
 ## Key types
 
 - `ArbResult` (main.py) -- full evaluation output (legs, costs, fees, npv, market data)
@@ -206,7 +208,7 @@ Deployed to a single Digital Ocean droplet (Debian 12) at `mathslug.me`.
 
 - **`deploy/setup.sh`** -- idempotent server provisioning (run as root). Creates user, dirs, nginx config, systemd unit, cron jobs.
 - **`deploy/run.sh`** -- cron wrapper that loads `.env` and runs commands via `uv run`.
-- **`.github/workflows/deploy.yml`** -- GitHub Actions: `git pull` + `uv sync` + restart webapp on push to `main`.
+- **`.github/workflows/deploy.yml`** -- GitHub Actions: `git pull` + `uv sync` + create `.env` from `ANTHROPIC_KEY` secret if missing + restart webapp on push to `main`.
 
 ### Cron schedule (ET / UTC)
 
