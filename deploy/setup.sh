@@ -44,11 +44,12 @@ export UV_PYTHON_INSTALL_DIR=/opt/uv-python
 cd "$APP_DIR"
 uv sync
 
-# Fix SELinux contexts for venv binaries
+# Fix SELinux contexts for venv binaries and log files
 echo "==> Fixing SELinux contexts"
 semanage fcontext -a -t bin_t '/opt/slonk-arb/.venv/bin(/.*)?' 2>/dev/null || true
 semanage fcontext -a -t bin_t '/opt/uv-python/.*/bin(/.*)?' 2>/dev/null || true
-restorecon -Rv /opt/slonk-arb/.venv/bin/ /opt/uv-python/ 2>/dev/null || true
+semanage fcontext -a -t cron_log_t "$LOG_DIR(/.*)?" 2>/dev/null || true
+restorecon -Rv /opt/slonk-arb/.venv/bin/ /opt/uv-python/ "$LOG_DIR" 2>/dev/null || true
 
 # Allow nginx to connect to gunicorn (TCP)
 setsebool -P httpd_can_network_connect 1
