@@ -110,6 +110,7 @@
     </p>
   {% endif %}
 
+  {% if is_admin %}
   <form method="post" action="/pair/{{ pair.id }}/review">
     <div class="grid">
       <button type="submit" name="decision" value="confirmed">Confirm</button>
@@ -117,6 +118,7 @@
       <button type="submit" name="decision" value="rejected" class="secondary">Reject</button>
     </div>
   </form>
+  {% endif %}
 </article>
 
 <p><a href="/review">&larr; Back to review queue</a></p>

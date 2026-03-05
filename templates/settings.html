@@ -5,21 +5,21 @@
 
 <article>
   <header>Hurdle Rate Parameters</header>
+  <p>
+    Buffer: {{ settings.get("buffer_bps", "100") }} bps ({{ "%.2f"|format(settings.get("buffer_bps", "100")|int / 100) }}%)<br>
+    Borrow rate: {{ settings.get("borrow_rate_bps", "600") }} bps ({{ "%.2f"|format(settings.get("borrow_rate_bps", "600")|int / 100) }}%)
+  </p>
+  {% if is_admin %}
   <form method="post" action="/settings">
-    <label for="buffer_bps">
-      Buffer (basis points)
-      <small> — {{ settings.get("buffer_bps", "100") }} bps = {{ "%.2f"|format(settings.get("buffer_bps", "100")|int / 100) }}%</small>
-    </label>
+    <label for="buffer_bps">Buffer (basis points)</label>
     <input type="number" id="buffer_bps" name="buffer_bps" value="{{ settings.get('buffer_bps', '100') }}" min="0" step="1">
 
-    <label for="borrow_rate_bps">
-      Borrow rate (basis points)
-      <small> — {{ settings.get("borrow_rate_bps", "600") }} bps = {{ "%.2f"|format(settings.get("borrow_rate_bps", "600")|int / 100) }}%</small>
-    </label>
+    <label for="borrow_rate_bps">Borrow rate (basis points)</label>
     <input type="number" id="borrow_rate_bps" name="borrow_rate_bps" value="{{ settings.get('borrow_rate_bps', '600') }}" min="0" step="1">
 
     <button type="submit">Save</button>
   </form>
+  {% endif %}
   <p><small>Hurdle yield = max(treasury_rate + buffer, borrow_rate)</small></p>
 </article>
 

@@ -14,7 +14,7 @@ jobs:
           host: ${{ secrets.DROPLET_URL }}
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: ANTHROPIC_KEY
+          envs: ANTHROPIC_KEY,ADMIN_PASSWORD
           script: |
             set -e
             # Support both old (kalshi-arb) and new (slonk-arb) directory layouts
@@ -34,10 +34,20 @@ jobs:
             git pull origin main
             uv sync
             if [ ! -f "$DATA_DIR/.env" ]; then
-                echo "ANTHROPIC_API_KEY=$ANTHROPIC_KEY" | sudo tee "$DATA_DIR/.env" > /dev/null
+                printf "ANTHROPIC_API_KEY=%s\nSLONK_ADMIN_PASSWORD=%s\n" "$ANTHROPIC_KEY" "$ADMIN_PASSWORD" | sudo tee "$DATA_DIR/.env" > /dev/null
                 sudo chown "$OWNER:$OWNER" "$DATA_DIR/.env"
                 sudo chmod 600 "$DATA_DIR/.env"
+            fi
+            # Ensure SLONK_ADMIN_PASSWORD is in existing .env
+            if ! grep -q SLONK_ADMIN_PASSWORD "$DATA_DIR/.env"; then
+                printf '\nSLONK_ADMIN_PASSWORD="%s"\n' "$ADMIN_PASSWORD" | sudo tee -a "$DATA_DIR/.env" > /dev/null
+            fi
+            # Remove nginx basic auth if still present
+            if grep -q auth_basic /etc/nginx/conf.d/slonk-arb.conf 2>/dev/null; then
+                sudo sed -i '/auth_basic/d' /etc/nginx/conf.d/slonk-arb.conf
+                sudo systemctl reload nginx
             fi
             sudo systemctl restart "$SVC"
         env:
           ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_KEY }}
+          ADMIN_PASSWORD: ${{ secrets.SLONK_ADMIN_PASSWORD }}

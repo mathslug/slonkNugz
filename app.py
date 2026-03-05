@@ -2,12 +2,14 @@
 """Flask webapp for reviewing Kalshi arbitrage candidate pairs."""
 
 import os
+from functools import wraps
 
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, redirect, render_template, request, url_for, Response
 
 import db as db_mod
 
 DB_PATH = os.environ.get("SLONK_DB") or os.environ.get("KALSHI_DB", "slonk_arb.db")
+ADMIN_PASSWORD = os.environ.get("SLONK_ADMIN_PASSWORD", "")
 
 
 def create_app(db_path: str = DB_PATH) -> Flask:
@@ -16,6 +18,30 @@ def create_app(db_path: str = DB_PATH) -> Flask:
 
     def get_conn():
         return db_mod.get_connection(app.config["DB_PATH"])
+
+    def _check_auth():
+        """Return True if the request has valid admin credentials."""
+        if not ADMIN_PASSWORD:
+            return False
+        auth = request.authorization
+        return auth and auth.password == ADMIN_PASSWORD
+
+    def admin_required(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if not ADMIN_PASSWORD:
+                return Response("Admin access not configured.", 403)
+            if not _check_auth():
+                return Response(
+                    "Unauthorized", 401,
+                    {"WWW-Authenticate": 'Basic realm="Admin"'},
+                )
+            return f(*args, **kwargs)
+        return decorated
+
+    @app.context_processor
+    def inject_is_admin():
+        return {"is_admin": _check_auth()}
 
     @app.route("/")
     def index():
@@ -73,6 +99,7 @@ def create_app(db_path: str = DB_PATH) -> Flask:
         return render_template("settings.html", settings=all_settings, latest_yields=latest_yields)
 
     @app.route("/settings", methods=["POST"])
+    @admin_required
     def update_settings():
         conn = get_conn()
         buffer_bps = request.form.get("buffer_bps", "100")
@@ -83,6 +110,7 @@ def create_app(db_path: str = DB_PATH) -> Flask:
         return redirect(url_for("settings"))
 
     @app.route("/pair/<int:pair_id>/review", methods=["POST"])
+    @admin_required
     def submit_review(pair_id):
         decision = request.form.get("decision")
         if decision not in ("confirmed", "rejected", "reversed"):

@@ -18,7 +18,7 @@ chown "$APP_USER:$APP_USER" "$LOG_DIR"/*.log
 
 echo "==> Installing system packages"
 dnf install -y -q epel-release 2>/dev/null || true
-dnf install -y -q nginx certbot python3-certbot-nginx httpd-tools cronie git policycoreutils-python-utils
+dnf install -y -q nginx certbot python3-certbot-nginx cronie git policycoreutils-python-utils
 
 echo "==> Writing /etc/environment"
 echo "UV_PYTHON_INSTALL_DIR=/opt/uv-python" > /etc/environment
@@ -60,9 +60,6 @@ if [ ! -f /etc/nginx/conf.d/slonk-arb.conf ]; then
 server {
     listen 80;
     server_name $DOMAIN;
-
-    auth_basic "Restricted";
-    auth_basic_user_file /etc/nginx/.htpasswd;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -142,7 +139,6 @@ chmod 644 /etc/cron.d/slonk-arb
 echo "==> Setup complete!"
 echo ""
 echo "Remaining manual steps:"
-echo "  1. Create htpasswd:  htpasswd -c /etc/nginx/.htpasswd <username>"
-echo "  2. Copy DB:          cp slonk_arb.db $DATA_DIR/ && chown $APP_USER:$APP_USER $DATA_DIR/slonk_arb.db"
-echo "  3. Start webapp:     systemctl start slonk-arb"
-echo "  4. SSL:              certbot --nginx -d $DOMAIN"
+echo "  1. Copy DB:          cp slonk_arb.db $DATA_DIR/ && chown $APP_USER:$APP_USER $DATA_DIR/slonk_arb.db"
+echo "  2. Start webapp:     systemctl start slonk-arb"
+echo "  3. SSL:              certbot --nginx -d $DOMAIN"
