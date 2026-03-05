@@ -13,7 +13,7 @@ echo "==> Creating system user and directories"
 id -u "$APP_USER" &>/dev/null || useradd --system --shell /sbin/nologin -d /home/$APP_USER "$APP_USER"
 mkdir -p "$DATA_DIR" "$DATA_DIR/backups" "$LOG_DIR" /home/$APP_USER/.cache
 chown "$APP_USER:$APP_USER" "$DATA_DIR" "$DATA_DIR/backups" "$LOG_DIR" /home/$APP_USER /home/$APP_USER/.cache
-touch "$LOG_DIR"/{cron,scan,evaluate,evaluate-high}.log
+touch "$LOG_DIR"/{cron,scan,evaluate,evaluate-high,evaluate-afternoon}.log
 chown "$APP_USER:$APP_USER" "$LOG_DIR"/*.log
 
 echo "==> Installing system packages"
@@ -128,7 +128,10 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 
 # Scan then evaluate (chained so they don't overlap)
 # 6:30 AM ET (10:30 UTC): scan -> evaluate confirmed -> evaluate high
-30 10 * * * $APP_USER $APP_DIR/deploy/run.sh scan.py --from-db --min-volume 200 --db $DATA_DIR/slonk_arb.db --log-file $LOG_DIR/scan.log >> $LOG_DIR/cron.log 2>&1 && $APP_DIR/deploy/run.sh evaluate.py --db $DATA_DIR/slonk_arb.db --log-file $LOG_DIR/evaluate.log >> $LOG_DIR/cron.log 2>&1 && $APP_DIR/deploy/run.sh evaluate.py --mode high --db $DATA_DIR/slonk_arb.db --log-file $LOG_DIR/evaluate-high.log >> $LOG_DIR/cron.log 2>&1
+30 10 * * * $APP_USER $APP_DIR/deploy/run.sh scan.py --from-db --filter tennis --min-volume 200 --db $DATA_DIR/slonk_arb.db --log-file $LOG_DIR/scan.log >> $LOG_DIR/cron.log 2>&1 && $APP_DIR/deploy/run.sh evaluate.py --db $DATA_DIR/slonk_arb.db --log-file $LOG_DIR/evaluate.log >> $LOG_DIR/cron.log 2>&1 && $APP_DIR/deploy/run.sh evaluate.py --mode high --db $DATA_DIR/slonk_arb.db --log-file $LOG_DIR/evaluate-high.log >> $LOG_DIR/cron.log 2>&1
+
+# Afternoon orderbook refresh (2:00 PM ET / 18:00 UTC)
+0 18 * * * $APP_USER $APP_DIR/deploy/run.sh evaluate.py --db $DATA_DIR/slonk_arb.db --log-file $LOG_DIR/evaluate-afternoon.log >> $LOG_DIR/cron.log 2>&1
 
 # Backup DB weekly (Sunday 3:00 AM ET / 7:00 UTC)
 0 7 * * 0 $APP_USER cp $DATA_DIR/slonk_arb.db $DATA_DIR/backups/slonk_arb_\$(date +\%Y\%m\%d).db 2>&1

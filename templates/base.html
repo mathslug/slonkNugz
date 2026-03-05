@@ -16,6 +16,7 @@
       <li><a href="/review">Review Queue</a></li>
       <li><a href="/reviewed">Reviewed</a></li>
       <li><a href="/trades">Trades</a></li>
+      <li><a href="/signals">Signals</a></li>
       <li><a href="/settings">Settings</a></li>
     </ul>
   </nav>
@@ -42,7 +43,7 @@
         <p style="font-size:2rem;text-align:center">{{ stats.rejected or 0 }}</p>
       </article>
     </div>
-    <p>No relationship: {{ stats.no_relationship or 0 }}</p>
+    <p>No relationship: {{ stats.no_relationship or 0 }} | Need more info: {{ stats.need_more_info or 0 }}</p>
     {% endif %}
     {% endblock %}
   </main>

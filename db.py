@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS candidate_pairs (
     ticker_b        TEXT NOT NULL REFERENCES tickers(ticker),
     antecedent_ticker  TEXT,
     consequent_ticker TEXT,
-    confidence      TEXT CHECK(confidence IN ('high','medium','low','none')),
+    confidence      TEXT CHECK(confidence IN ('high','medium','low','none','need_more_info')),
     reasoning       TEXT,
     llm_model       TEXT,
     screened_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
@@ -84,6 +84,20 @@ CREATE TABLE IF NOT EXISTS treasury_yields (
     fetched_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
+CREATE TABLE IF NOT EXISTS trade_signals (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair_id             INTEGER NOT NULL REFERENCES candidate_pairs(id),
+    first_seen_at       TEXT NOT NULL,
+    last_refreshed      TEXT NOT NULL,
+    refresh_count       INTEGER NOT NULL DEFAULT 1,
+    last_recommendation TEXT NOT NULL CHECK(last_recommendation IN ('buy','pass')),
+    last_yield          REAL,
+    last_excess         REAL,
+    last_n              INTEGER,
+    last_cost           REAL,
+    UNIQUE(pair_id)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL,
@@ -109,14 +123,65 @@ _MIGRATIONS = [
     "ALTER TABLE treasury_yields ADD COLUMN m1h REAL",
 ]
 
+_TABLE_REBUILDS = [
+    # Add 'need_more_info' to confidence CHECK constraint
+    (
+        "candidate_pairs",
+        "need_more_info_confidence",
+        """\
+CREATE TABLE candidate_pairs_new (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker_a        TEXT NOT NULL REFERENCES tickers(ticker),
+    ticker_b        TEXT NOT NULL REFERENCES tickers(ticker),
+    antecedent_ticker  TEXT,
+    consequent_ticker TEXT,
+    confidence      TEXT CHECK(confidence IN ('high','medium','low','none','need_more_info')),
+    reasoning       TEXT,
+    llm_model       TEXT,
+    screened_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    human_review    TEXT CHECK(human_review IN ('confirmed','rejected') OR human_review IS NULL),
+    reviewed_at     TEXT,
+    UNIQUE(ticker_a, ticker_b)
+)""",
+    ),
+]
+
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    """Apply column renames to existing DBs. Safe to re-run."""
+    """Apply column renames and table rebuilds to existing DBs. Safe to re-run."""
     for sql in _MIGRATIONS:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass  # already renamed or table doesn't exist yet
+
+    # Table rebuilds for CHECK constraint changes
+    # Temporarily disable foreign keys so DROP TABLE succeeds when other tables reference it
+    fk_state = conn.execute("PRAGMA foreign_keys").fetchone()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    for table, migration_name, create_sql in _TABLE_REBUILDS:
+        # Check if table exists at all
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if not exists:
+            continue  # will be created by SCHEMA_SQL
+
+        # Check if already migrated by looking for 'need_more_info' in the schema
+        schema = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if schema and "need_more_info" in schema[0]:
+            continue  # already rebuilt
+
+        new_table = f"{table}_new"
+        conn.execute(create_sql)
+        conn.execute(f"INSERT INTO {new_table} SELECT * FROM {table}")
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
+        conn.commit()
+    if fk_state and fk_state[0]:
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
 def init_db(db_path: str) -> None:
@@ -192,6 +257,19 @@ def upsert_tickers(conn: sqlite3.Connection, markets: list[dict]) -> tuple[int, 
             new += 1
     conn.commit()
     return new, updated
+
+
+def deactivate_missing_tickers(conn: sqlite3.Connection, active_tickers: set[str]) -> int:
+    """Mark tickers NOT in the active set as is_active=0. Returns count deactivated."""
+    if not active_tickers:
+        return 0
+    placeholders = ",".join("?" for _ in active_tickers)
+    cur = conn.execute(
+        f"UPDATE tickers SET is_active = 0 WHERE is_active = 1 AND ticker NOT IN ({placeholders})",
+        list(active_tickers),
+    )
+    conn.commit()
+    return cur.rowcount
 
 
 def record_prices(conn: sqlite3.Connection, markets: list[dict]) -> int:
@@ -322,7 +400,7 @@ def _compute_yield(
     return ann_yield, days
 
 
-_CONF_ORDER = {"high": 0, "medium": 1, "low": 2, "none": 3}
+_CONF_ORDER = {"high": 0, "medium": 1, "low": 2, "need_more_info": 3, "none": 4}
 
 # Treasury tenor name -> approximate days
 _TENORS = [
@@ -457,7 +535,9 @@ def get_pairs_for_review(conn: sqlite3.Connection, status: str) -> list[dict]:
     sorted by cost ascending then confidence descending.
     """
     if status == "unreviewed":
-        where = "cp.human_review IS NULL AND cp.confidence != 'none' AND cp.antecedent_ticker IS NOT NULL AND cp.consequent_ticker IS NOT NULL"
+        where = "cp.human_review IS NULL AND cp.confidence NOT IN ('none','need_more_info') AND cp.antecedent_ticker IS NOT NULL AND cp.consequent_ticker IS NOT NULL"
+    elif status == "need_more_info":
+        where = "cp.human_review IS NULL AND cp.confidence = 'need_more_info'"
     elif status == "confirmed":
         where = "cp.human_review = 'confirmed'"
     elif status == "rejected":
@@ -602,10 +682,11 @@ def get_pair_stats(conn: sqlite3.Connection) -> dict:
     row = conn.execute(
         """SELECT
             COUNT(*) AS total,
-            SUM(CASE WHEN confidence != 'none' AND human_review IS NULL THEN 1 ELSE 0 END) AS unreviewed,
+            SUM(CASE WHEN confidence NOT IN ('none','need_more_info') AND human_review IS NULL THEN 1 ELSE 0 END) AS unreviewed,
             SUM(CASE WHEN human_review = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
             SUM(CASE WHEN human_review = 'rejected' THEN 1 ELSE 0 END) AS rejected,
-            SUM(CASE WHEN confidence = 'none' THEN 1 ELSE 0 END) AS no_relationship
+            SUM(CASE WHEN confidence = 'none' THEN 1 ELSE 0 END) AS no_relationship,
+            SUM(CASE WHEN confidence = 'need_more_info' AND human_review IS NULL THEN 1 ELSE 0 END) AS need_more_info
         FROM candidate_pairs"""
     ).fetchone()
     return dict(row)
@@ -710,6 +791,53 @@ def bulk_insert_evaluations(conn: sqlite3.Connection, evals: list[dict]) -> int:
         count += 1
     conn.commit()
     return count
+
+
+def upsert_trade_signal(conn: sqlite3.Connection, eval_dict: dict) -> None:
+    """Insert or update a trade signal from an evaluation result."""
+    now = _now_utc()
+    conn.execute(
+        """INSERT INTO trade_signals
+            (pair_id, first_seen_at, last_refreshed, refresh_count,
+             last_recommendation, last_yield, last_excess, last_n, last_cost)
+        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+        ON CONFLICT(pair_id) DO UPDATE SET
+            last_refreshed = excluded.last_refreshed,
+            refresh_count = trade_signals.refresh_count + 1,
+            last_recommendation = excluded.last_recommendation,
+            last_yield = excluded.last_yield,
+            last_excess = excluded.last_excess,
+            last_n = excluded.last_n,
+            last_cost = excluded.last_cost""",
+        (
+            eval_dict["pair_id"], now, now,
+            eval_dict["recommendation"],
+            eval_dict.get("annualized_yield"),
+            eval_dict.get("excess_yield"),
+            eval_dict.get("n_contracts", 0),
+            eval_dict.get("total_cost"),
+        ),
+    )
+    conn.commit()
+
+
+def get_trade_signals(conn: sqlite3.Connection) -> list[dict]:
+    """All trade signals joined with pair/ticker info, ordered by last refresh."""
+    rows = conn.execute(
+        """SELECT ts.*,
+                  cp.antecedent_ticker, cp.consequent_ticker,
+                  cp.confidence, cp.human_review,
+                  ant.title AS antecedent_title,
+                  ant.event_ticker AS antecedent_event_ticker,
+                  con.title AS consequent_title,
+                  con.event_ticker AS consequent_event_ticker
+           FROM trade_signals ts
+           INNER JOIN candidate_pairs cp ON cp.id = ts.pair_id
+           LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
+           LEFT JOIN tickers con ON con.ticker = cp.consequent_ticker
+           ORDER BY ts.last_refreshed DESC"""
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_latest_evaluations(conn: sqlite3.Connection) -> list[dict]:

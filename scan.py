@@ -4,7 +4,7 @@
 Scans Kalshi sports markets to discover pairs where one contract resolving YES
 logically guarantees another also resolves YES (e.g., winning the French Open
 implies winning a Grand Slam). Uses programmatic pre-filtering to narrow
-candidates, then Claude Haiku for implication checking.
+candidates, then Claude Sonnet for implication checking.
 
 Results are persisted to a SQLite database for incremental scanning and human
 review via the companion Flask webapp (app.py).
@@ -83,19 +83,16 @@ def fetch_events_with_markets(series_ticker: str) -> list[dict]:
     return events
 
 
-def fetch_markets(
-    category: str,
-    filter_term: str | None,
-    min_volume: int = 0,
-) -> list[dict]:
-    """Fetch open markets by iterating filtered series.
+def fetch_markets(category: str) -> list[dict]:
+    """Fetch ALL open markets for a category (no filtering).
 
-    When filter_term is provided, only series matching the keyword are queried,
-    making this very fast for narrow scans (e.g., 'tennis' -> ~20 series).
+    Always fetches everything so the DB has a complete picture for
+    deactivation tracking. Filtering by keyword/volume is applied later
+    at the LLM screening stage.
     """
     print(f"Fetching {category} series...")
-    all_series = fetch_series(category, filter_term)
-    print(f"  {len(all_series)} series{f' matching \"{filter_term}\"' if filter_term else ''}")
+    all_series = fetch_series(category, None)
+    print(f"  {len(all_series)} series")
 
     markets = []
     for i, s in enumerate(all_series):
@@ -118,8 +115,6 @@ def fetch_markets(
                 if m.get("status") not in ("open", "active"):
                     continue
                 vol = int(m.get("volume", 0) or 0)
-                if vol < min_volume:
-                    continue
                 markets.append({
                     "ticker": m["ticker"],
                     "series_ticker": sticker,
@@ -374,7 +369,7 @@ def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, 
             blocklist_count += len(list(combinations(entity_markets, 2)))
             continue
         for a, b in combinations(entity_markets, 2):
-            if a["series_ticker"] != b["series_ticker"]:
+            if a["series_ticker"] != b["series_ticker"] and a["event_ticker"] != b["event_ticker"]:
                 sport_a = _get_sport(a["series_ticker"])
                 sport_b = _get_sport(b["series_ticker"])
                 if sport_a and sport_b and sport_a != sport_b:
@@ -393,18 +388,22 @@ def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, 
 # ── LLM screening ───────────────────────────────────────────────────────────
 
 SCREENING_PROMPT = """\
-/no_think
-For each pair of events below, determine if one event logically implies the other. Check both directions.
+For each pair of events below, determine if one event logically NECESSITATES the other. Check both directions.
 
-"A implies B" means: if A happened, B **must** also have happened (or must happen). It is a strict logical guarantee, not just likely or correlated.
+"A implies B" means: if A resolves YES, then B MUST ALSO resolve YES as a matter of logical necessity — not probability, correlation, or likelihood. The implication must hold in every possible scenario.
 
-Examples:
-- "Player X wins the French Open" implies "Player X wins a Grand Slam" ✓ (the French Open IS a Grand Slam)
-- "Team Y wins the Super Bowl" implies "Team Y wins the AFC/NFC Championship" ✓ (you must win your conference to reach the Super Bowl)
-- "Team Y wins the Super Bowl" implies "Team Y makes the playoffs" ✓ (same logic)
-- "Team Y wins the AFC Championship" implies "Team Y wins the Super Bowl" ✗ (they APPEAR in the Super Bowl but could LOSE — appearing != winning)
-- "Team Y wins their division" implies "Team Y wins the championship" ✗ (they could lose in the playoffs)
-- "Team Y wins the championship" implies "Team Y wins their division" ✗ (wild card teams can win championships without winning their division)
+Examples of TRUE implications:
+- "Player X wins the French Open" → "Player X wins a Grand Slam" (the French Open IS a Grand Slam)
+- "Team Y wins the Super Bowl" → "Team Y wins the AFC/NFC Championship" (must win conference to reach Super Bowl)
+- "Team Y wins the Super Bowl" → "Team Y makes the playoffs" (must make playoffs to win)
+
+Note: the implication can go in EITHER direction. "Player X wins a tennis major" does NOT imply "Player X wins the French Open" — could win a different major. But reversed: "Player X wins the French Open" DOES imply "Player X wins a major". Always check BOTH directions.
+
+Examples of FALSE implications:
+- "Team Y wins the AFC Championship" → "Team Y wins the Super Bowl" ✗ (they could LOSE the Super Bowl)
+- "Team Y wins their division" → "Team Y wins the championship" ✗ (could lose in playoffs)
+- "Team Y wins the championship" → "Team Y wins their division" ✗ (wild card teams exist)
+- "Player X leads in stats" → "Player X wins MVP" ✗ (correlation, not necessity)
 
 Return a JSON object (no markdown fencing) with a "results" key containing one object per pair:
 {"results": [
@@ -413,16 +412,22 @@ Return a JSON object (no markdown fencing) with a "results" key containing one o
     "ticker_b": "Event B ticker (copied exactly from input)",
     "antecedent_ticker": "..." or null,
     "consequent_ticker": "..." or null,
-    "confidence": "high" | "medium" | "low" | "none",
+    "confidence": "high" | "medium" | "low" | "none" | "need_more_info",
     "reasoning": "short explanation"
   }
 ]}
 
 IMPORTANT: "ticker_a" and "ticker_b" MUST be copied exactly from the Event A and Event B tickers shown in each pair.
 
-"confidence" of "none" means no implication in either direction — set antecedent_ticker and consequent_ticker to null.
-"antecedent_ticker" is the event that implies the other. "consequent_ticker" is the event that is implied.
-If uncertain, use "low" confidence rather than "none" — err toward inclusion.
+Confidence levels:
+- "high": the implication is a logical certainty based on the rules of the sport/competition
+- "medium": the implication is very likely logically necessary but depends on specific rule interpretations
+- "low": there may be an implication but it's unclear — err toward inclusion
+- "need_more_info": the events MIGHT be logically dependent but you cannot determine the relationship without additional context (e.g., depends on tournament brackets, contingencies, or ambiguous rules)
+- "none": no implication in either direction — set antecedent_ticker and consequent_ticker to null
+
+"antecedent_ticker" is the event that IMPLIES the other (if this is YES, the other MUST be YES).
+"consequent_ticker" is the event that is IMPLIED (necessarily YES when the antecedent is YES).
 
 CANDIDATE PAIRS:
 """
@@ -436,13 +441,11 @@ def format_pair_for_llm(idx: int, a: dict, b: dict) -> str:
         f"  ticker: {a['ticker']}\n"
         f"  title: {a['title']}\n"
         f"  rules: {a['rules_primary'][:500]}\n"
-        f"  expiration: {a['expected_expiration_time']}\n"
         f"\n"
         f"Event B:\n"
         f"  ticker: {b['ticker']}\n"
         f"  title: {b['title']}\n"
         f"  rules: {b['rules_primary'][:500]}\n"
-        f"  expiration: {b['expected_expiration_time']}\n"
     )
 
 
@@ -549,15 +552,21 @@ def screen_pairs_with_llm(
                 r["ticker_a"] = key[0]
                 r["ticker_b"] = key[1]
 
-                if r.get("confidence") != "none" and r.get("antecedent_ticker") and r.get("consequent_ticker"):
+                conf = r.get("confidence")
+                if conf not in ("none", "need_more_info") and r.get("antecedent_ticker") and r.get("consequent_ticker"):
                     log.info("ACCEPTED: %s -> %s [%s] %s",
                              r.get("antecedent_ticker"), r.get("consequent_ticker"),
-                             r.get("confidence"), r.get("reasoning", ""))
+                             conf, r.get("reasoning", ""))
                     accepted += 1
+                elif conf == "need_more_info":
+                    log.info("NEED_INFO: %s / %s [%s] %s",
+                             r.get("ticker_a"), r.get("ticker_b"),
+                             conf, r.get("reasoning", ""))
+                    rejected += 1
                 else:
                     log.info("REJECTED: %s -> %s [%s] %s",
                              r.get("antecedent_ticker"), r.get("consequent_ticker"),
-                             r.get("confidence"), r.get("reasoning", ""))
+                             conf, r.get("reasoning", ""))
                     rejected += 1
                 results.append(r)
 
@@ -595,12 +604,13 @@ def print_summary(results: list[dict]) -> None:
 
     confirmed = [r for r in results if r.get("confidence") in ("high", "medium")]
     uncertain = [r for r in results if r.get("confidence") == "low"]
+    need_info = [r for r in results if r.get("confidence") == "need_more_info"]
 
     print(f"\n{'='*80}")
-    print(f"SCAN RESULTS: {len(confirmed)} confirmed, {len(uncertain)} uncertain")
+    print(f"SCAN RESULTS: {len(confirmed)} confirmed, {len(uncertain)} uncertain, {len(need_info)} need info")
     print(f"{'='*80}")
 
-    for label, group in [("CONFIRMED", confirmed), ("UNCERTAIN", uncertain)]:
+    for label, group in [("CONFIRMED", confirmed), ("UNCERTAIN", uncertain), ("NEED MORE INFO", need_info)]:
         if not group:
             continue
         print(f"\n  {label}:")
@@ -643,8 +653,8 @@ def main() -> None:
         help="filter series by keyword (e.g. 'tennis,atp,grand slam')",
     )
     parser.add_argument(
-        "--min-volume", type=int, default=0,
-        help="exclude markets below this volume (default: 0)",
+        "--min-volume", type=int, default=200,
+        help="exclude markets below this volume (default: 200)",
     )
     # DB options
     parser.add_argument(
@@ -665,8 +675,8 @@ def main() -> None:
     )
     # LLM options
     parser.add_argument(
-        "--model", default="claude-haiku-4-5-20251001",
-        help="Anthropic model name (default: claude-haiku-4-5-20251001)",
+        "--model", default="claude-sonnet-4-6",
+        help="Anthropic model name (default: claude-sonnet-4-6)",
     )
     parser.add_argument(
         "--batch-size", type=int, default=12,
@@ -693,18 +703,35 @@ def main() -> None:
 
     # ── Fetch or use DB ──────────────────────────────────────────────────
     if not args.from_db:
-        markets = fetch_markets(args.category, args.filter, args.min_volume)
+        markets = fetch_markets(args.category)
         if not markets:
             print("No open markets found.")
             sys.exit(0)
 
         new, updated = db_mod.upsert_tickers(conn, markets)
         recorded = db_mod.record_prices(conn, markets)
-        print(f"  DB: {new} new tickers, {updated} updated, {recorded} price snapshots")
+        active_tickers = {m["ticker"] for m in markets}
+        deactivated = db_mod.deactivate_missing_tickers(conn, active_tickers)
+        print(f"  DB: {new} new tickers, {updated} updated, {recorded} price snapshots, {deactivated} deactivated")
 
     # ── Generate candidates from DB ──────────────────────────────────────
     print("\nGrouping markets by entity (from DB)...")
     groups = db_mod.get_tickers_by_entity(conn, min_volume=args.min_volume)
+
+    # Apply --filter to restrict which entity groups go to LLM screening
+    if args.filter:
+        terms = [t.strip().lower() for t in args.filter.split(",")]
+        filtered_groups = {}
+        for entity, entity_markets in groups.items():
+            if any(
+                any(t in m.get("series_ticker", "").lower() or t in m.get("title", "").lower() for t in terms)
+                for m in entity_markets
+            ):
+                filtered_groups[entity] = entity_markets
+        skipped_entities = len(groups) - len(filtered_groups)
+        groups = filtered_groups
+        if skipped_entities:
+            print(f"  Filter '{args.filter}': kept {len(groups)} entities, skipped {skipped_entities}")
     print(f"  Entities in 2+ series: {len(groups)}")
 
     if not groups:
@@ -746,7 +773,7 @@ def main() -> None:
     print(f"  DB: {len(all_results)} pair results stored (incremental)")
 
     # ── Filter to confirmed for output ───────────────────────────────────
-    confirmed = [r for r in all_results if r.get("confidence") != "none" and r.get("antecedent_ticker") and r.get("consequent_ticker")]
+    confirmed = [r for r in all_results if r.get("confidence") not in ("none", "need_more_info") and r.get("antecedent_ticker") and r.get("consequent_ticker")]
     print(f"  Pairs with implication: {len(confirmed)}")
 
     # ── Output ───────────────────────────────────────────────────────────

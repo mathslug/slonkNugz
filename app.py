@@ -56,7 +56,7 @@ def create_app(db_path: str = DB_PATH) -> Flask:
         return render_template("base.html", page="dashboard", stats=stats)
 
     def _filter_by_confidence(pairs, confidence):
-        if confidence and confidence in ("high", "medium", "low"):
+        if confidence and confidence in ("high", "medium", "low", "need_more_info"):
             return [p for p in pairs if p.get("confidence") == confidence]
         return pairs
 
@@ -87,6 +87,13 @@ def create_app(db_path: str = DB_PATH) -> Flask:
         if not pair:
             return "Pair not found", 404
         return render_template("detail.html", pair=pair)
+
+    @app.route("/signals")
+    def signals():
+        conn = get_conn()
+        sigs = db_mod.get_trade_signals(conn)
+        conn.close()
+        return render_template("signals.html", signals=sigs)
 
     @app.route("/trades")
     def trades():

@@ -83,6 +83,7 @@ def main() -> None:
         try:
             result = evaluate_pair(pair, hurdle, args.max_n, conn=conn)
             db_mod.insert_trade_evaluation(conn, result)
+            db_mod.upsert_trade_signal(conn, result)
             results.append(result)
             rec = result["recommendation"].upper()
             if rec == "BUY":

@@ -5,7 +5,7 @@
 
 <div class="grid">
   <article>
-    <header>Antecedent (more specific)</header>
+    <header>Antecedent (implies)</header>
     <p><strong>{{ pair.antecedent_ticker }}</strong></p>
     <p>{{ pair.antecedent_title }}</p>
     <p>
@@ -27,7 +27,7 @@
   </article>
 
   <article>
-    <header>Consequent (broader)</header>
+    <header>Consequent (implied)</header>
     <p><strong>{{ pair.consequent_ticker }}</strong></p>
     <p>{{ pair.consequent_title }}</p>
     <p>
@@ -52,7 +52,7 @@
 <article>
   <header>LLM Screening</header>
   <p>
-    <strong>Confidence:</strong> {{ pair.confidence }}<br>
+    <strong>Confidence:</strong> {% if pair.confidence == 'need_more_info' %}<mark style="background-color:#ff9">need more info</mark>{% else %}{{ pair.confidence }}{% endif %}<br>
     <strong>Model:</strong> {{ pair.llm_model or 'N/A' }}<br>
     <strong>Screened:</strong> {{ pair.screened_at or 'N/A' }}
   </p>
