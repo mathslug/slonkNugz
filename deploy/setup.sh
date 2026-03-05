@@ -103,7 +103,7 @@ echo "==> Setting up deploy user"
 id -u deploy &>/dev/null || useradd -m deploy
 usermod -aG slonk deploy
 cat > /etc/sudoers.d/deploy <<'SUDOERS'
-deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart slonk-arb, /usr/bin/systemctl reload nginx, /usr/bin/tee /var/lib/slonk-arb/.env, /usr/bin/chown slonk\:slonk /var/lib/slonk-arb/.env, /usr/bin/chmod 600 /var/lib/slonk-arb/.env
+deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart slonk-arb, /usr/bin/systemctl reload nginx, /usr/bin/tee /var/lib/slonk-arb/.env, /usr/bin/tee -a /var/lib/slonk-arb/.env, /usr/bin/chown slonk\:slonk /var/lib/slonk-arb/.env, /usr/bin/chmod 600 /var/lib/slonk-arb/.env, /usr/bin/grep * /var/lib/slonk-arb/.env, /usr/bin/sed -i * /etc/nginx/conf.d/slonk-arb.conf
 SUDOERS
 chmod 440 /etc/sudoers.d/deploy
 chown -R deploy:slonk "$APP_DIR"
