@@ -14,7 +14,7 @@ jobs:
           host: ${{ secrets.DROPLET_URL }}
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: ANTHROPIC_KEY,SLONK_ADMIN_PASS
+          envs: ANTHROPIC_KEY,SLONK_ADMIN_PASSWORD
           script: |
             set -e
             cd /opt/slonk-arb
@@ -24,12 +24,12 @@ jobs:
             sudo cp /opt/slonk-arb/deploy/slonk-arb.cron /etc/cron.d/slonk-arb
             # Create .env from GitHub secrets if missing
             if [ ! -f /var/lib/slonk-arb/.env ]; then
-                printf 'ANTHROPIC_API_KEY=%s\nSLONK_ADMIN_PASSWORD=%s\n' \
-                    "$ANTHROPIC_KEY" "$SLONK_ADMIN_PASS" | sudo tee /var/lib/slonk-arb/.env > /dev/null
+                printf 'ANTHROPIC_API_KEY=%s\nSLONK_ADMIN_PASSWORDWORD=%s\n' \
+                    "$ANTHROPIC_KEY" "$SLONK_ADMIN_PASSWORD" | sudo tee /var/lib/slonk-arb/.env > /dev/null
                 sudo chown slonk:slonk /var/lib/slonk-arb/.env
                 sudo chmod 600 /var/lib/slonk-arb/.env
             fi
             sudo systemctl restart slonk-arb
         env:
           ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_KEY }}
-          SLONK_ADMIN_PASS: ${{ secrets.SLONK_ADMIN_PASS }}
+          SLONK_ADMIN_PASSWORD: ${{ secrets.SLONK_ADMIN_PASSWORD }}

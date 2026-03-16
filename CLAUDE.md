@@ -251,4 +251,4 @@ NOTIFY_EMAIL=...
 - `DROPLET_URL` -- server hostname (e.g. slonkn.mathslug.com)
 - `SSH_PRIVATE_KEY` -- deploy user's private key
 - `ANTHROPIC_KEY` -- Anthropic API key (written to `.env` on first deploy)
-- `SLONK_ADMIN_PASS` -- webapp basic auth password (written to `.env` on first deploy)
+- `SLONK_ADMIN_PASSWORD` -- webapp basic auth password (written to `.env` on first deploy)
