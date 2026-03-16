@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Evaluations - Karb{% endblock %}
+{% block content %}
+<h2>Evaluations (last {{ days }} day{{ 's' if days != 1 else '' }})</h2>
+
+<p>
+  <small>
+    Show:
+    <a href="/evaluations?days=1">1 day</a> |
+    <a href="/evaluations?days=2">2 days</a> |
+    <a href="/evaluations?days=7">7 days</a> |
+    <a href="/evaluations?days=30">30 days</a>
+  </small>
+</p>
+
+{% if not evals %}
+<article>
+  <p>No evaluations in the last {{ days }} day{{ 's' if days != 1 else '' }}.</p>
+</article>
+{% else %}
+<p><small>{{ evals|length }} evaluation{{ 's' if evals|length != 1 else '' }}</small></p>
+
+<figure>
+<table>
+  <thead>
+    <tr>
+      <th>Antecedent</th>
+      <th>Consequent</th>
+      <th>Rec</th>
+      <th>TOB Cost</th>
+      <th>Yield</th>
+      <th>Excess</th>
+      <th>Days</th>
+      <th>Evaluated</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in evals %}
+    <tr>
+      <td>
+        <a href="https://kalshi.com/markets/{{ e.antecedent_event_ticker }}" target="_blank">{{ e.antecedent_ticker }}</a>
+        <br><small>{{ e.antecedent_title }}</small>
+      </td>
+      <td>
+        <a href="https://kalshi.com/markets/{{ e.consequent_event_ticker }}" target="_blank">{{ e.consequent_ticker }}</a>
+        <br><small>{{ e.consequent_title }}</small>
+      </td>
+      <td>
+        {% if e.recommendation == 'buy' %}
+          <mark style="background-color:#4a4">BUY</mark>
+        {% else %}
+          PASS
+        {% endif %}
+      </td>
+      <td style="text-align:right">
+        {% if e.tob_cost is not none %}${{ "%.4f"|format(e.tob_cost) }}{% else %}N/A{% endif %}
+      </td>
+      <td style="text-align:right">
+        {% if e.annualized_yield is not none %}{% if e.annualized_yield > 9.99 %}&gt;999%{% else %}{{ "%.2f"|format(e.annualized_yield * 100) }}%{% endif %}{% else %}N/A{% endif %}
+      </td>
+      <td style="text-align:right">
+        {% if e.excess_yield is not none %}
+          <span style="color:{{ 'green' if e.excess_yield > 0 else 'red' }}">{{ "%+.2f"|format(e.excess_yield * 100) }}%</span>
+        {% else %}
+          N/A
+        {% endif %}
+      </td>
+      <td style="text-align:right">{{ e.days_to_maturity if e.days_to_maturity is not none else 'N/A' }}</td>
+      <td><small>{{ e.evaluated_at[:16] if e.evaluated_at else 'N/A' }}</small></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</figure>
+{% endif %}
+{% endblock %}

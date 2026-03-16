@@ -713,6 +713,26 @@ def insert_trade_evaluation(conn: sqlite3.Connection, eval_dict: dict) -> int:
     return cur.lastrowid
 
 
+def get_recent_evaluations(conn: sqlite3.Connection, days: int = 2) -> list[dict]:
+    """All evaluations from the last N days, joined with pair/ticker info."""
+    rows = conn.execute(
+        """SELECT te.*, cp.antecedent_ticker, cp.consequent_ticker,
+                  cp.confidence, cp.reasoning,
+                  ant.title AS antecedent_title,
+                  ant.event_ticker AS antecedent_event_ticker,
+                  con.title AS consequent_title,
+                  con.event_ticker AS consequent_event_ticker
+           FROM trade_evaluations te
+           INNER JOIN candidate_pairs cp ON cp.id = te.pair_id
+           LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
+           LEFT JOIN tickers con ON con.ticker = cp.consequent_ticker
+           WHERE te.evaluated_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)
+           ORDER BY te.evaluated_at DESC""",
+        (f"-{days} days",),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_latest_evaluations(conn: sqlite3.Connection) -> list[dict]:
     """Latest evaluation per pair (only 'buy' recommendations), joined with pair/ticker info."""
     rows = conn.execute(

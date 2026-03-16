@@ -95,6 +95,14 @@ def create_app(db_path: str = DB_PATH) -> Flask:
         conn.close()
         return render_template("trades.html", evals=evals)
 
+    @app.route("/evaluations")
+    def evaluations():
+        conn = get_conn()
+        days = request.args.get("days", 2, type=int)
+        evals = db_mod.get_recent_evaluations(conn, days=days)
+        conn.close()
+        return render_template("evaluations.html", evals=evals, days=days)
+
     @app.route("/settings")
     def settings():
         conn = get_conn()
