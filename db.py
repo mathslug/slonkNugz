@@ -84,20 +84,6 @@ CREATE TABLE IF NOT EXISTS treasury_yields (
     fetched_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
-CREATE TABLE IF NOT EXISTS trade_signals (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    pair_id             INTEGER NOT NULL REFERENCES candidate_pairs(id),
-    first_seen_at       TEXT NOT NULL,
-    last_refreshed      TEXT NOT NULL,
-    refresh_count       INTEGER NOT NULL DEFAULT 1,
-    last_recommendation TEXT NOT NULL CHECK(last_recommendation IN ('buy','pass')),
-    last_yield          REAL,
-    last_excess         REAL,
-    last_n              INTEGER,
-    last_cost           REAL,
-    UNIQUE(pair_id)
-);
-
 CREATE TABLE IF NOT EXISTS settings (
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL,
