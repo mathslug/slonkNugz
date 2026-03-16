@@ -74,10 +74,11 @@ def fetch_orderbook(ticker: str) -> dict:
     elapsed_ms = (time.monotonic() - t0) * 1000
     log.debug("fetch_orderbook %s -> %d (%.0fms)", ticker, resp.status_code, elapsed_ms)
     resp.raise_for_status()
-    data = resp.json()["orderbook"]
+    body = resp.json()
+    data = body.get("orderbook_fp") or body["orderbook"]
 
     def parse_levels(raw: list) -> list[tuple[float, int]]:
-        return [(float(price), int(qty)) for price, qty in raw]
+        return [(float(price), int(float(qty))) for price, qty in raw]
 
     return {
         "yes": parse_levels(data.get("yes_dollars") or []),
