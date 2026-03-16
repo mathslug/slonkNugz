@@ -12,7 +12,7 @@ Eight code files + templates + deploy scripts:
 
 - **`scan.py`** -- discovers arb pairs automatically. Fetches sports markets from Kalshi, groups by entity (`yes_sub_title`), generates cross-series candidate pairs, screens via Claude Sonnet for logical implication, persists to SQLite DB, prints terminal summary.
 
-- **`db.py`** -- pure SQLite persistence functions. Every function takes `conn` as first arg — no global state. Tables: `tickers`, `prices`, `candidate_pairs`, `trade_evaluations`, `treasury_yields`, `trade_signals`, `settings`. Designed for REPL use: `import db; conn = db.get_connection("slonk_arb.db")`.
+- **`db.py`** -- pure SQLite persistence functions. Every function takes `conn` as first arg — no global state. Tables: `tickers`, `prices`, `candidate_pairs`, `trade_evaluations`, `treasury_yields`, `settings`. Designed for REPL use: `import db; conn = db.get_connection("slonk_arb.db")`.
 
 - **`evaluate.py`** -- evaluates confirmed arb pairs against live orderbooks. Fetches orderbooks, finds optimal contract count via binary search, stores results in DB.
 
@@ -115,14 +115,13 @@ Uses Claude Sonnet via the Anthropic API. The prompt requests `ticker_a`/`ticker
 
 ## Database
 
-SQLite database (`slonk_arb.db` by default) with six tables:
+SQLite database (`slonk_arb.db` by default) with five tables:
 
 - **`tickers`** -- all market info fetched from Kalshi (ticker, series, event, title, prices, volume, timestamps). Primary key: `ticker`. Price columns are the "latest" cache, overwritten each scan.
 - **`prices`** -- append-only price history. One row per ticker per scan with `last_price`, `yes_ask`, `no_ask`, and `recorded_at` timestamp. Populated by `record_prices()` during each scan.
 - **`candidate_pairs`** -- LLM screening results with `ticker_a`/`ticker_b` (always stored in sorted order), `antecedent_ticker`/`consequent_ticker`, confidence (`high`/`medium`/`low`/`need_more_info`/`none`), reasoning, and `human_review` (confirmed/rejected/NULL).
 - **`trade_evaluations`** -- append-only evaluation results per pair (orderbook snapshots, yields, costs, recommendation).
 - **`treasury_yields`** -- daily Treasury CMT yield curve data for discount rate calculations.
-- **`trade_signals`** -- latest evaluation state per pair, upserted each evaluation run (tracks first seen, refresh count, last recommendation).
 
 ### `db.py` key functions
 
@@ -139,7 +138,6 @@ All take `conn: sqlite3.Connection` as first arg:
 - `get_pairs_for_review(conn, status)` -- fetch pairs for review UI (`unreviewed`/`confirmed`/`rejected`/`need_more_info`)
 - `get_pair_detail(conn, pair_id)` -- full info for a single pair
 - `set_review(conn, pair_id, decision)` -- set human review
-- `upsert_trade_signal(conn, eval_dict)` -- insert/update trade signal from evaluation
 
 ## Review webapp
 
@@ -152,7 +150,6 @@ Flask app (`app.py`) on port 5001 with routes:
 | `/reviewed` | Confirmed + rejected pairs |
 | `/pair/<id>` | Pair detail with confirm/reject buttons |
 | `/trades` | Trade evaluations history |
-| `/signals` | Latest trade signals per pair |
 | `/settings` | App settings |
 | `/login` | Authentication |
 | `POST /pair/<id>/review` | Submit review decision |

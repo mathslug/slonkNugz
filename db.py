@@ -727,53 +727,6 @@ def insert_trade_evaluation(conn: sqlite3.Connection, eval_dict: dict) -> int:
     return cur.lastrowid
 
 
-def upsert_trade_signal(conn: sqlite3.Connection, eval_dict: dict) -> None:
-    """Insert or update a trade signal from an evaluation result."""
-    now = _now_utc()
-    conn.execute(
-        """INSERT INTO trade_signals
-            (pair_id, first_seen_at, last_refreshed, refresh_count,
-             last_recommendation, last_yield, last_excess, last_n, last_cost)
-        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
-        ON CONFLICT(pair_id) DO UPDATE SET
-            last_refreshed = excluded.last_refreshed,
-            refresh_count = trade_signals.refresh_count + 1,
-            last_recommendation = excluded.last_recommendation,
-            last_yield = excluded.last_yield,
-            last_excess = excluded.last_excess,
-            last_n = excluded.last_n,
-            last_cost = excluded.last_cost""",
-        (
-            eval_dict["pair_id"], now, now,
-            eval_dict["recommendation"],
-            eval_dict.get("annualized_yield"),
-            eval_dict.get("excess_yield"),
-            eval_dict.get("n_contracts", 0),
-            eval_dict.get("total_cost"),
-        ),
-    )
-    conn.commit()
-
-
-def get_trade_signals(conn: sqlite3.Connection) -> list[dict]:
-    """All trade signals joined with pair/ticker info, ordered by last refresh."""
-    rows = conn.execute(
-        """SELECT ts.*,
-                  cp.antecedent_ticker, cp.consequent_ticker,
-                  cp.confidence, cp.human_review,
-                  ant.title AS antecedent_title,
-                  ant.event_ticker AS antecedent_event_ticker,
-                  con.title AS consequent_title,
-                  con.event_ticker AS consequent_event_ticker
-           FROM trade_signals ts
-           INNER JOIN candidate_pairs cp ON cp.id = ts.pair_id
-           LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
-           LEFT JOIN tickers con ON con.ticker = cp.consequent_ticker
-           ORDER BY ts.last_refreshed DESC"""
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-
 def get_latest_evaluations(conn: sqlite3.Connection) -> list[dict]:
     """Latest evaluation per pair (only 'buy' recommendations), joined with pair/ticker info."""
     rows = conn.execute(

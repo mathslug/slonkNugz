@@ -88,13 +88,6 @@ def create_app(db_path: str = DB_PATH) -> Flask:
             return "Pair not found", 404
         return render_template("detail.html", pair=pair)
 
-    @app.route("/signals")
-    def signals():
-        conn = get_conn()
-        sigs = db_mod.get_trade_signals(conn)
-        conn.close()
-        return render_template("signals.html", signals=sigs)
-
     @app.route("/trades")
     def trades():
         conn = get_conn()
