@@ -83,18 +83,22 @@ def fetch_events_with_markets(series_ticker: str) -> list[dict]:
     return events
 
 
-def fetch_markets(category: str) -> list[dict]:
-    """Fetch ALL open markets for a category (no filtering).
+def fetch_and_store_markets(category: str, conn) -> set[str]:
+    """Fetch ALL open markets for a category and upsert into DB incrementally.
 
-    Always fetches everything so the DB has a complete picture for
-    deactivation tracking. Filtering by keyword/volume is applied later
-    at the LLM screening stage.
+    Upserts each series' markets immediately so we never hold all 17K+
+    markets in memory at once. Returns the set of active ticker strings
+    (for deactivation tracking).
     """
     print(f"Fetching {category} series...", flush=True)
     all_series = fetch_series(category, None)
     print(f"  {len(all_series)} series")
 
-    markets = []
+    active_tickers: set[str] = set()
+    total_markets = 0
+    new_total = 0
+    updated_total = 0
+    recorded_total = 0
     for i, s in enumerate(all_series):
         sticker = s["ticker"]
         for attempt in range(3):
@@ -110,12 +114,13 @@ def fetch_markets(category: str) -> list[dict]:
                 events = []
                 break
         time.sleep(0.2)  # rate limit between series
+        batch = []
         for event in events:
             for m in event.get("markets", []):
                 if m.get("status") not in ("open", "active"):
                     continue
                 vol = int(float(m.get("volume") or m.get("volume_fp") or 0))
-                markets.append({
+                batch.append({
                     "ticker": m["ticker"],
                     "series_ticker": sticker,
                     "event_ticker": event["event_ticker"],
@@ -129,11 +134,20 @@ def fetch_markets(category: str) -> list[dict]:
                     "no_ask_dollars": m.get("no_ask_dollars"),
                     "volume": vol,
                 })
+        if batch:
+            new, updated = db_mod.upsert_tickers(conn, batch)
+            recorded = db_mod.record_prices(conn, batch)
+            new_total += new
+            updated_total += updated
+            recorded_total += recorded
+            active_tickers.update(m["ticker"] for m in batch)
+            total_markets += len(batch)
         if (i + 1) % 10 == 0 or i + 1 == len(all_series):
-            print(f"  Processed {i + 1}/{len(all_series)} series ({len(markets)} markets)", flush=True)
+            print(f"  Processed {i + 1}/{len(all_series)} series ({total_markets} markets)", flush=True)
 
-    print(f"  Total open markets: {len(markets)}")
-    return markets
+    print(f"  Total open markets: {total_markets}")
+    print(f"  DB: {new_total} new tickers, {updated_total} updated, {recorded_total} price snapshots")
+    return active_tickers
 
 
 # ── Pre-filtering ────────────────────────────────────────────────────────────
@@ -702,16 +716,13 @@ def main() -> None:
     # ── Fetch or use DB ──────────────────────────────────────────────────
     if not args.from_db:
         t0 = time.time()
-        markets = fetch_markets(args.category)
-        if not markets:
+        active_tickers = fetch_and_store_markets(args.category, conn)
+        if not active_tickers:
             print("No open markets found.")
             sys.exit(0)
 
-        new, updated = db_mod.upsert_tickers(conn, markets)
-        recorded = db_mod.record_prices(conn, markets)
-        active_tickers = {m["ticker"] for m in markets}
         deactivated = db_mod.deactivate_missing_tickers(conn, active_tickers)
-        print(f"  DB: {new} new tickers, {updated} updated, {recorded} price snapshots, {deactivated} deactivated")
+        print(f"  {deactivated} tickers deactivated")
         print(f"  Fetch completed in {time.time() - t0:.0f}s", flush=True)
 
     # ── Generate candidates from DB ──────────────────────────────────────
