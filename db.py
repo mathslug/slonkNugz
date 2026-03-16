@@ -543,10 +543,12 @@ def get_pairs_for_review(conn: sqlite3.Connection, status: str) -> list[dict]:
             ant.yes_ask_dollars AS antecedent_yes_ask,
             ant.no_ask_dollars AS antecedent_no_ask,
             ant.event_ticker AS antecedent_event_ticker,
+            ant.series_ticker AS antecedent_series,
             con.title AS consequent_title,
             con.yes_ask_dollars AS consequent_yes_ask,
             con.no_ask_dollars AS consequent_no_ask,
             con.event_ticker AS consequent_event_ticker,
+            con.series_ticker AS consequent_series,
             ant.expected_expiration_time AS antecedent_expiration,
             con.expected_expiration_time AS consequent_expiration
         FROM candidate_pairs cp
@@ -720,8 +722,10 @@ def get_recent_evaluations(conn: sqlite3.Connection, days: int = 2) -> list[dict
                   cp.confidence, cp.reasoning,
                   ant.title AS antecedent_title,
                   ant.event_ticker AS antecedent_event_ticker,
+                  ant.series_ticker AS antecedent_series,
                   con.title AS consequent_title,
-                  con.event_ticker AS consequent_event_ticker
+                  con.event_ticker AS consequent_event_ticker,
+                  con.series_ticker AS consequent_series
            FROM trade_evaluations te
            INNER JOIN candidate_pairs cp ON cp.id = te.pair_id
            LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
@@ -740,8 +744,10 @@ def get_latest_evaluations(conn: sqlite3.Connection) -> list[dict]:
                   cp.confidence, cp.reasoning,
                   ant.title AS antecedent_title,
                   ant.event_ticker AS antecedent_event_ticker,
+                  ant.series_ticker AS antecedent_series,
                   con.title AS consequent_title,
-                  con.event_ticker AS consequent_event_ticker
+                  con.event_ticker AS consequent_event_ticker,
+                  con.series_ticker AS consequent_series
            FROM trade_evaluations te
            INNER JOIN (
                SELECT pair_id, MAX(evaluated_at) AS max_eval

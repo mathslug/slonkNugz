@@ -31,11 +31,11 @@
     {% for p in pairs %}
     <tr>
       <td>
-        <a href="https://kalshi.com/markets/{{ p.antecedent_event_ticker|lower }}/{{ p.antecedent_ticker|lower }}" target="_blank">{{ p.antecedent_ticker }}</a>
+        <a href="https://kalshi.com/markets/{{ p.antecedent_series|lower }}/{{ p.antecedent_ticker|lower }}" target="_blank">{{ p.antecedent_ticker }}</a>
         <br><small>{{ p.antecedent_title }}</small>
       </td>
       <td>
-        <a href="https://kalshi.com/markets/{{ p.consequent_event_ticker|lower }}/{{ p.consequent_ticker|lower }}" target="_blank">{{ p.consequent_ticker }}</a>
+        <a href="https://kalshi.com/markets/{{ p.consequent_series|lower }}/{{ p.consequent_ticker|lower }}" target="_blank">{{ p.consequent_ticker }}</a>
         <br><small>{{ p.consequent_title }}</small>
       </td>
       <td>{{ p.confidence }}</td>

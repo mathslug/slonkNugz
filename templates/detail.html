@@ -19,7 +19,7 @@
       NO ask: {{ pair.antecedent_no_ask or 'N/A' }}<br>
       Last: {{ pair.antecedent_last_price or 'N/A' }}
     </p>
-    <p><a href="https://kalshi.com/markets/{{ pair.antecedent_event_ticker|lower }}/{{ pair.antecedent_ticker|lower }}" target="_blank">View on Kalshi</a></p>
+    <p><a href="https://kalshi.com/markets/{{ pair.antecedent_series|lower }}/{{ pair.antecedent_ticker|lower }}" target="_blank">View on Kalshi</a></p>
     <details>
       <summary>Rules</summary>
       <small>{{ pair.antecedent_rules }}</small>
@@ -41,7 +41,7 @@
       NO ask: {{ pair.consequent_no_ask or 'N/A' }}<br>
       Last: {{ pair.consequent_last_price or 'N/A' }}
     </p>
-    <p><a href="https://kalshi.com/markets/{{ pair.consequent_event_ticker|lower }}/{{ pair.consequent_ticker|lower }}" target="_blank">View on Kalshi</a></p>
+    <p><a href="https://kalshi.com/markets/{{ pair.consequent_series|lower }}/{{ pair.consequent_ticker|lower }}" target="_blank">View on Kalshi</a></p>
     <details>
       <summary>Rules</summary>
       <small>{{ pair.consequent_rules }}</small>
