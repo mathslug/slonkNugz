@@ -218,8 +218,8 @@ Deployed to a single Digital Ocean droplet (AlmaLinux 10, s-1vcpu-512mb-10gb) at
 
 | Time ET | UTC | Job |
 |---------|-----|-----|
-| 6:30 PM | 22:30 | `scan.py --category Sports --max-pairs 0` -- fetch all sports tickers into DB (no LLM) |
-| 6:50 PM | 22:50 | `fetch_yields.py` + `scan.py --from-db --filter tennis --min-volume 200` + `evaluate.py` + `evaluate.py --mode high` (chained) |
+| 3:30 AM | 07:30 | `scan.py --category Sports --max-pairs 0` -- fetch all sports tickers into DB (no LLM) |
+| 4:00 AM | 08:00 | `fetch_yields.py` + `scan.py --from-db --filter tennis --min-volume 200` + `evaluate.py` + `evaluate.py --mode high` (chained) |
 | Sun 3 AM | Sun 7:00 | DB backup to `/var/lib/slonk-arb/backups/` |
 
 ### Email notifications
