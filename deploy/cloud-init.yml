@@ -67,6 +67,13 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
+  # Swap (prevents OOM on 512MB droplet during large fetches)
+  - fallocate -l 1G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+  - echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+
   # Packages (epel-release first -- certbot and python3-certbot-nginx live in EPEL)
   - dnf install -y epel-release
   - dnf install -y nginx certbot python3-certbot-nginx cronie git policycoreutils-python-utils

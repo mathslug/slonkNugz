@@ -83,15 +83,15 @@ def fetch_events_with_markets(series_ticker: str) -> list[dict]:
     return events
 
 
-def fetch_and_store_markets(category: str, conn) -> set[str]:
-    """Fetch ALL open markets for a category and upsert into DB incrementally.
+def fetch_and_store_markets(category: str, conn, filter_term: str | None = None) -> set[str]:
+    """Fetch open markets for a category and upsert into DB incrementally.
 
     Upserts each series' markets immediately so we never hold all 17K+
     markets in memory at once. Returns the set of active ticker strings
     (for deactivation tracking).
     """
     print(f"Fetching {category} series...", flush=True)
-    all_series = fetch_series(category, None)
+    all_series = fetch_series(category, filter_term)
     print(f"  {len(all_series)} series")
 
     active_tickers: set[str] = set()
@@ -716,13 +716,16 @@ def main() -> None:
     # ── Fetch or use DB ──────────────────────────────────────────────────
     if not args.from_db:
         t0 = time.time()
-        active_tickers = fetch_and_store_markets(args.category, conn)
+        active_tickers = fetch_and_store_markets(args.category, conn, filter_term=args.filter)
         if not active_tickers:
             print("No open markets found.")
             sys.exit(0)
 
-        deactivated = db_mod.deactivate_missing_tickers(conn, active_tickers)
-        print(f"  {deactivated} tickers deactivated")
+        # Only deactivate when we fetched ALL tickers (no filter), otherwise
+        # we'd wrongly deactivate tickers outside the filter.
+        if not args.filter:
+            deactivated = db_mod.deactivate_missing_tickers(conn, active_tickers)
+            print(f"  {deactivated} tickers deactivated")
         print(f"  Fetch completed in {time.time() - t0:.0f}s", flush=True)
 
     # ── Generate candidates from DB ──────────────────────────────────────

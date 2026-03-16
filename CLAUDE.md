@@ -227,10 +227,9 @@ Deployed to a single Digital Ocean droplet (AlmaLinux 10, s-1vcpu-512mb-10gb) at
 
 | Time ET | UTC | Job |
 |---------|-----|-----|
-| 5:30 AM | 09:30 | `scan.py --category Sports --max-pairs 0` -- fetch all sports tickers into DB (no LLM) |
-| 6:00 AM | 10:00 | `fetch_yields.py` -- Treasury yield curve |
-| 6:30 AM | 10:30 | `scan.py --from-db --filter tennis --min-volume 200` && `evaluate.py` && `evaluate.py --mode high` (chained) |
-| 2:00 PM | 18:00 | `evaluate.py` -- afternoon orderbook refresh |
+| 7:50 AM | 11:50 | `scan.py --category Sports --filter tennis --max-pairs 0` -- fetch tennis tickers into DB (no LLM) |
+| 8:10 AM | 12:10 | `fetch_yields.py` + `scan.py --from-db --filter tennis --min-volume 200` + `evaluate.py` + `evaluate.py --mode high` (chained) |
+| 8:30 AM | 12:30 | `evaluate.py` -- afternoon orderbook refresh |
 | Sun 3 AM | Sun 7:00 | DB backup to `/var/lib/slonk-arb/backups/` |
 
 ### Email notifications
