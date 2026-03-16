@@ -3,16 +3,16 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 
 # Fetch tennis tickers into DB (no LLM calls)
-# 7:52 PM ET / 23:52 UTC
-52 23 * * * slonk /opt/slonk-arb/deploy/run.sh scan.py --category Sports --filter tennis --max-pairs 0 --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/scan.log >> /var/log/slonk-arb/cron.log 2>&1
+# 19:55 UTC / 3:55 PM ET
+55 19 * * * slonk /opt/slonk-arb/deploy/run.sh scan.py --category Sports --filter tennis --max-pairs 0 --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/scan.log >> /var/log/slonk-arb/cron.log 2>&1
 
 # Fetch Treasury yields + scan + evaluate (chained)
-# 8:12 PM ET / 00:12 UTC
-12 0 * * * slonk /opt/slonk-arb/deploy/run.sh fetch_yields.py --db /var/lib/slonk-arb/slonk_arb.db >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh scan.py --from-db --filter tennis --min-volume 200 --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/scan.log >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh evaluate.py --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate.log >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh evaluate.py --mode high --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate-high.log >> /var/log/slonk-arb/cron.log 2>&1
+# 20:15 UTC / 4:15 PM ET
+15 20 * * * slonk /opt/slonk-arb/deploy/run.sh fetch_yields.py --db /var/lib/slonk-arb/slonk_arb.db >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh scan.py --from-db --filter tennis --min-volume 200 --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/scan.log >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh evaluate.py --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate.log >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh evaluate.py --mode high --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate-high.log >> /var/log/slonk-arb/cron.log 2>&1
 
 # Evening orderbook refresh
-# 8:32 PM ET / 00:32 UTC
-32 0 * * * slonk /opt/slonk-arb/deploy/run.sh evaluate.py --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate-afternoon.log >> /var/log/slonk-arb/cron.log 2>&1
+# 20:35 UTC / 4:35 PM ET
+35 20 * * * slonk /opt/slonk-arb/deploy/run.sh evaluate.py --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate-afternoon.log >> /var/log/slonk-arb/cron.log 2>&1
 
 # Backup DB weekly (Sunday 3:00 AM ET / 7:00 UTC)
 0 7 * * 0 slonk cp /var/lib/slonk-arb/slonk_arb.db /var/lib/slonk-arb/backups/slonk_arb_$(date +\%Y\%m\%d).db 2>&1
