@@ -1,4 +1,4 @@
-# kalshi-arb
+# slonk-arb
 
 Kalshi cross-market arbitrage checker and scanner for binary prediction markets.
 
@@ -24,7 +24,7 @@ Eight code files + templates + deploy scripts:
 
 - **`templates/`** -- Jinja2 templates (`base.html`, `review.html`, `detail.html`, `trades.html`, `signals.html`, `settings.html`) using Pico CSS.
 
-- **`deploy/`** -- server provisioning (`setup.sh`), cron wrapper (`run.sh`), and GitHub Actions workflow.
+- **`deploy/`** -- server provisioning (`cloud-init.yml`, `rebuild.sh`), cron wrapper (`run.sh`), and GitHub Actions workflow.
 
 - **`scripts/`** -- helper scripts for operations (`pull_prod.sh`, `db_summary.py`, `check_server.sh`, `log_errors.sh`, `pair_details.py`).
 
@@ -220,7 +220,6 @@ Deployed to a single Digital Ocean droplet (AlmaLinux 10, s-1vcpu-512mb-10gb) at
 
 - **`deploy/cloud-init.yml`** -- cloud-config user-data for first-boot provisioning of a new droplet. Installs packages, creates users, clones repo, sets up nginx/systemd/cron/SELinux.
 - **`deploy/rebuild.sh`** -- local script to finish provisioning after cloud-init: waits for DNS + cloud-init, pushes secrets and DB, runs certbot, starts webapp. Usage: `bash deploy/rebuild.sh <IP> [--db path/to/backup.db]`
-- **`deploy/setup.sh`** -- standalone fallback for manual provisioning (run as root on server).
 - **`deploy/run.sh`** -- cron wrapper that loads `.env` and runs commands via `uv run`.
 - **`.github/workflows/deploy.yml`** -- GitHub Actions: `git pull` + `uv sync` + install crontab + restart webapp on push to `main`.
 
