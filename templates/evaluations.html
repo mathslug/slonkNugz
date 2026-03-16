@@ -38,11 +38,11 @@
     {% for e in evals %}
     <tr>
       <td>
-        <a href="https://kalshi.com/markets/{{ e.antecedent_series|lower }}/{{ e.antecedent_ticker|lower }}" target="_blank">{{ e.antecedent_ticker }}</a>
+        <a href="https://kalshi.com/markets/{{ e.antecedent_series|lower }}/{{ e.antecedent_event_ticker|lower }}" target="_blank">{{ e.antecedent_ticker }}</a>
         <br><small>{{ e.antecedent_title }}</small>
       </td>
       <td>
-        <a href="https://kalshi.com/markets/{{ e.consequent_series|lower }}/{{ e.consequent_ticker|lower }}" target="_blank">{{ e.consequent_ticker }}</a>
+        <a href="https://kalshi.com/markets/{{ e.consequent_series|lower }}/{{ e.consequent_event_ticker|lower }}" target="_blank">{{ e.consequent_ticker }}</a>
         <br><small>{{ e.consequent_title }}</small>
       </td>
       <td>

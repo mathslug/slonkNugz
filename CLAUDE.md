@@ -154,7 +154,7 @@ Flask app (`app.py`) on port 5001 with routes:
 | `/login` | Authentication |
 | `POST /pair/<id>/review` | Submit review decision |
 
-Uses Pico CSS (CDN, classless). Kalshi links: `https://kalshi.com/markets/<event_ticker>`.
+Uses Pico CSS (CDN, classless). Kalshi links: `https://kalshi.com/markets/<series_ticker_lower>/<event_ticker_lower>` (Kalshi redirects to include the slug).
 
 ## Logging
 
