@@ -171,6 +171,12 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     if fk_state and fk_state[0]:
         conn.execute("PRAGMA foreign_keys=ON")
 
+    # Backfill none-confidence pairs that have NULL antecedent/consequent
+    conn.execute("""UPDATE candidate_pairs
+        SET antecedent_ticker = ticker_a, consequent_ticker = ticker_b
+        WHERE antecedent_ticker IS NULL""")
+    conn.commit()
+
 
 def init_db(db_path: str) -> None:
     """Create tables. Idempotent."""
@@ -339,6 +345,8 @@ def bulk_upsert_pair_results(
     now = _now_utc()
     for r in results:
         ta, tb = _sorted_pair(r["ticker_a"], r["ticker_b"])
+        ant = r.get("antecedent_ticker") or ta
+        con = r.get("consequent_ticker") or tb
         conn.execute(
             """INSERT INTO candidate_pairs
                 (ticker_a, ticker_b, antecedent_ticker, consequent_ticker,
@@ -353,7 +361,7 @@ def bulk_upsert_pair_results(
                 screened_at = excluded.screened_at""",
             (
                 ta, tb,
-                r.get("antecedent_ticker"), r.get("consequent_ticker"),
+                ant, con,
                 r.get("confidence"), r.get("reasoning"),
                 model, now,
             ),
@@ -555,8 +563,8 @@ def get_pairs_for_review(conn: sqlite3.Connection, status: str) -> list[dict]:
             ant.expected_expiration_time AS antecedent_expiration,
             con.expected_expiration_time AS consequent_expiration
         FROM candidate_pairs cp
-        LEFT JOIN tickers ant ON ant.ticker = COALESCE(cp.antecedent_ticker, cp.ticker_a)
-        LEFT JOIN tickers con ON con.ticker = COALESCE(cp.consequent_ticker, cp.ticker_b)
+        LEFT JOIN tickers ant ON ant.ticker = cp.antecedent_ticker
+        LEFT JOIN tickers con ON con.ticker = cp.consequent_ticker
         WHERE {where}""",
     ).fetchall()
 
