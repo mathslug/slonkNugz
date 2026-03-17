@@ -1,4 +1,4 @@
-# slonkNugz
+# Karb Scanner
 
 Cross-market arbitrage scanner for [Kalshi](https://kalshi.com), a regulated prediction market exchange.
 
@@ -33,7 +33,7 @@ Yes. At one point, Lorenzo Musetti's odds of winning the French Open were priced
 
 The review webapp is running at [slonkn.mathslug.com](https://slonkn.mathslug.com). You can browse pairs and evaluation results, but confirming/rejecting pairs requires authentication.
 
-Currently scoped to tennis markets to keep LLM token costs reasonable. The architecture supports any Kalshi category.
+Currently scoped to tennis and hockey markets. The architecture supports any Kalshi sport category, with a `sub_sport` system that distinguishes pro from college leagues (e.g., NFL vs college football).
 
 ## Built with Claude
 
@@ -71,7 +71,7 @@ uv run app.py  # http://localhost:5001
 ## Workflow
 
 ```
-Morning fetch (all sports tickers) -> LLM screening (tennis, filtered) -> evaluate confirmed pairs
+Morning fetch (all sports tickers) -> LLM screening (tennis + hockey, filtered) -> evaluate confirmed pairs
                                                                        -> evaluate high-confidence unreviewed
 Afternoon -> re-evaluate confirmed pairs with fresh orderbooks
 ```

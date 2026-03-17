@@ -91,7 +91,7 @@ runcmd:
   - chmod 755 /usr/local/bin/uv /usr/local/bin/uvx
 
   # Clone repo and install deps
-  - git clone https://github.com/mathslug/slonkNugz.git /opt/slonk-arb
+  - git clone https://github.com/mathslug/Karb_Scanner.git /opt/slonk-arb
   - cd /opt/slonk-arb && UV_PYTHON_INSTALL_DIR=/opt/uv-python /usr/local/bin/uv sync
 
   # File ownership
