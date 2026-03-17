@@ -27,6 +27,12 @@ load_dotenv()
 
 log = logging.getLogger("scan")
 
+# Filter values that map to a different Kalshi API tag (e.g. "Pro Football" -> "Football")
+_FILTER_TO_API_TAG = {
+    "pro football": "Football",
+    "college football": "Football",
+}
+
 
 # ── Fetching ─────────────────────────────────────────────────────────────────
 
@@ -120,6 +126,12 @@ def fetch_and_store_markets(category: str, conn, filter_tags: list[str] | None =
         time.sleep(0.2)  # rate limit between series
         batch = []
         for event in events:
+            # Derive sub_sport: use competition for Football, otherwise sport_tag
+            competition = event.get("product_metadata", {}).get("competition", "")
+            if sport_tag == "Football" and competition:
+                sub_sport = competition  # e.g. "Pro Football", "College Football"
+            else:
+                sub_sport = sport_tag
             for m in event.get("markets", []):
                 if m.get("status") not in ("open", "active"):
                     continue
@@ -138,6 +150,7 @@ def fetch_and_store_markets(category: str, conn, filter_tags: list[str] | None =
                     "no_ask_dollars": m.get("no_ask_dollars"),
                     "volume": vol,
                     "sport_tag": sport_tag,
+                    "sub_sport": sub_sport,
                 })
         if batch:
             new, updated = db_mod.upsert_tickers(conn, batch)
@@ -183,9 +196,9 @@ def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, 
             continue
         for a, b in combinations(entity_markets, 2):
             if a["series_ticker"] != b["series_ticker"] and a["event_ticker"] != b["event_ticker"]:
-                sport_a = a.get("sport_tag") or None
-                sport_b = b.get("sport_tag") or None
-                if sport_a and sport_b and sport_a != sport_b:
+                sub_a = a.get("sub_sport") or a.get("sport_tag") or None
+                sub_b = b.get("sub_sport") or b.get("sport_tag") or None
+                if sub_a and sub_b and sub_a != sub_b:
                     filtered_count += 1
                     continue
                 pairs.append((a, b))
@@ -515,7 +528,11 @@ def main() -> None:
     # ── Fetch or use DB ──────────────────────────────────────────────────
     if not args.from_db:
         t0 = time.time()
-        filter_tags = [t.strip().title() for t in args.filter.split(",")] if args.filter else None
+        if args.filter:
+            raw = [t.strip().lower() for t in args.filter.split(",")]
+            filter_tags = list({_FILTER_TO_API_TAG.get(t, t).title() for t in raw})
+        else:
+            filter_tags = None
         active_tickers = fetch_and_store_markets(args.category, conn, filter_tags=filter_tags)
         if not active_tickers:
             print("No open markets found.")
@@ -534,11 +551,11 @@ def main() -> None:
 
     # Apply --filter to restrict which entity groups go to LLM screening
     if args.filter:
-        filter_tags_lower = [t.strip().lower() for t in args.filter.split(",")]
+        filter_lower = [t.strip().lower() for t in args.filter.split(",")]
         filtered_groups = {}
         for entity, entity_markets in groups.items():
             if any(
-                m.get("sport_tag", "").lower() in filter_tags_lower
+                m.get("sub_sport", "").lower() in filter_lower
                 for m in entity_markets
             ):
                 filtered_groups[entity] = entity_markets

@@ -109,6 +109,7 @@ _MIGRATIONS = [
     "ALTER TABLE candidate_pairs RENAME COLUMN sufficient_ticker TO consequent_ticker",
     "ALTER TABLE treasury_yields ADD COLUMN m1h REAL",
     "ALTER TABLE tickers ADD COLUMN sport_tag TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE tickers ADD COLUMN sub_sport TEXT NOT NULL DEFAULT ''",
 ]
 
 _TABLE_REBUILDS = [
@@ -175,6 +176,8 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("""UPDATE candidate_pairs
         SET antecedent_ticker = ticker_a, consequent_ticker = ticker_b
         WHERE antecedent_ticker IS NULL""")
+    # Backfill sub_sport from sport_tag for existing rows
+    conn.execute("""UPDATE tickers SET sub_sport = sport_tag WHERE sub_sport = ''""")
     conn.commit()
 
 
@@ -218,7 +221,7 @@ def upsert_tickers(conn: sqlite3.Connection, markets: list[dict]) -> tuple[int, 
                     yes_sub_title = ?, rules_primary = ?,
                     expected_expiration_time = ?, close_time = ?,
                     last_price_dollars = ?, yes_ask_dollars = ?, no_ask_dollars = ?,
-                    volume = ?, sport_tag = ?, last_scanned = ?, is_active = 1
+                    volume = ?, sport_tag = ?, sub_sport = ?, last_scanned = ?, is_active = 1
                 WHERE ticker = ?""",
                 (
                     m["series_ticker"], m["event_ticker"], m.get("title", ""),
@@ -226,7 +229,7 @@ def upsert_tickers(conn: sqlite3.Connection, markets: list[dict]) -> tuple[int, 
                     m.get("expected_expiration_time"), m.get("close_time"),
                     m.get("last_price_dollars"), m.get("yes_ask_dollars"),
                     m.get("no_ask_dollars"), int(float(m.get("volume") or m.get("volume_fp") or 0)),
-                    m.get("sport_tag", ""), now, m["ticker"],
+                    m.get("sport_tag", ""), m.get("sub_sport", ""), now, m["ticker"],
                 ),
             )
             updated += 1
@@ -236,8 +239,8 @@ def upsert_tickers(conn: sqlite3.Connection, markets: list[dict]) -> tuple[int, 
                     (ticker, series_ticker, event_ticker, title, yes_sub_title,
                      rules_primary, expected_expiration_time, close_time,
                      last_price_dollars, yes_ask_dollars, no_ask_dollars,
-                     volume, sport_tag, first_seen, last_scanned, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                     volume, sport_tag, sub_sport, first_seen, last_scanned, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
                 (
                     m["ticker"], m["series_ticker"], m["event_ticker"],
                     m.get("title", ""), m.get("yes_sub_title", ""),
@@ -245,7 +248,7 @@ def upsert_tickers(conn: sqlite3.Connection, markets: list[dict]) -> tuple[int, 
                     m.get("expected_expiration_time"), m.get("close_time"),
                     m.get("last_price_dollars"), m.get("yes_ask_dollars"),
                     m.get("no_ask_dollars"), int(float(m.get("volume") or m.get("volume_fp") or 0)),
-                    m.get("sport_tag", ""), now, now,
+                    m.get("sport_tag", ""), m.get("sub_sport", ""), now, now,
                 ),
             )
             new += 1
@@ -301,7 +304,7 @@ def get_tickers_by_entity(conn: sqlite3.Connection, min_volume: int = 0) -> dict
         """SELECT ticker, series_ticker, event_ticker, title, yes_sub_title,
                   rules_primary, expected_expiration_time, close_time,
                   last_price_dollars, yes_ask_dollars, no_ask_dollars, volume,
-                  sport_tag
+                  sport_tag, sub_sport
            FROM tickers WHERE is_active = 1 AND yes_sub_title != ''
                   AND volume >= ?""",
         (min_volume,),
