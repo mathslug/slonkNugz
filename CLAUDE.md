@@ -42,8 +42,8 @@ uv run main.py -n 500 --rfr 0.04 --buffer 0.005
 
 ### Scan for new pairs
 ```
-uv run scan.py --filter "tennis,atp,wta,french open,grand slam,wimbledon"
 uv run scan.py --filter tennis --min-volume 100
+uv run scan.py --filter "Tennis,Soccer"                              # multiple Kalshi tags
 uv run scan.py --model claude-haiku-4-5-20251001 --batch-size 12
 ```
 
@@ -73,7 +73,7 @@ SLONK_DB=my.db uv run app.py                       # custom DB path
 - `--buffer` -- buffer above RFR (default 0.01)
 
 ### CLI args -- scan.py
-- `--filter` / `-f` -- comma-separated keywords to filter series (e.g. "tennis,atp,grand slam")
+- `--filter` / `-f` -- comma-separated Kalshi API tags to filter series (e.g. "tennis" or "Tennis,Soccer"). Uses the `tags` query parameter on the `/series` endpoint for server-side filtering.
 - `--model` -- Anthropic model name (default: `claude-sonnet-4-6`)
 - `--min-volume` -- exclude markets below this volume (default: 0)
 - `--batch-size` -- pairs per LLM call (default: 12)
@@ -93,12 +93,12 @@ SLONK_DB=my.db uv run app.py                       # custom DB path
 ## Scanner data flow
 
 ```
-Fetch ALL series for category -> Fetch events + nested markets per series
-  -> Extract minimal market representations
+Fetch series for category (filtered by API tags if --filter) -> Fetch events + nested markets per series
+  -> Extract minimal market representations + sport_tag from series tags
   -> Upsert tickers into SQLite DB + deactivate missing tickers
   -> Group markets by entity (yes_sub_title) from DB
-  -> Apply keyword filter + min-volume at entity/pair level
-  -> Generate cross-series candidate pairs per entity
+  -> Apply sport_tag filter + min-volume at entity/pair level
+  -> Generate cross-series candidate pairs per entity (reject cross-sport pairs via sport_tag)
   -> Filter out already-screened pairs (unless --rescan)
   -> LLM screens each pair for logical implication (A YES -> B YES?)
   -> Store ALL results in DB (including "none" and "need_more_info" confidence)
@@ -107,7 +107,7 @@ Fetch ALL series for category -> Fetch events + nested markets per series
 
 ### Pre-filtering strategy
 
-Implication relationships almost always involve the same entity: "Alcaraz wins FO" -> "Alcaraz wins a GS". Grouping by `yes_sub_title` then only pairing across different series is a near-perfect pre-filter that reduces O(n^2) to ~50-200 candidates.
+Implication relationships almost always involve the same entity: "Alcaraz wins FO" -> "Alcaraz wins a GS". Grouping by `yes_sub_title` then only pairing across different series is a near-perfect pre-filter that reduces O(n^2) to ~50-200 candidates. Cross-sport pairs (different `sport_tag`) are also rejected, using the tag from the Kalshi API series `tags` field.
 
 ### LLM screening
 
@@ -117,7 +117,7 @@ Uses Claude Sonnet via the Anthropic API. The prompt requests `ticker_a`/`ticker
 
 SQLite database (`slonk_arb.db` by default) with five tables:
 
-- **`tickers`** -- all market info fetched from Kalshi (ticker, series, event, title, prices, volume, timestamps). Primary key: `ticker`. Price columns are the "latest" cache, overwritten each scan.
+- **`tickers`** -- all market info fetched from Kalshi (ticker, series, event, title, prices, volume, sport_tag, timestamps). Primary key: `ticker`. Price columns are the "latest" cache, overwritten each scan. `sport_tag` stores the first tag from the series' `tags` array (e.g., "Tennis").
 - **`prices`** -- append-only price history. One row per ticker per scan with `last_price`, `yes_ask`, `no_ask`, and `recorded_at` timestamp. Populated by `record_prices()` during each scan.
 - **`candidate_pairs`** -- LLM screening results with `ticker_a`/`ticker_b` (always stored in sorted order), `antecedent_ticker`/`consequent_ticker`, confidence (`high`/`medium`/`low`/`need_more_info`/`none`), reasoning, and `human_review` (confirmed/rejected/NULL).
 - **`trade_evaluations`** -- append-only evaluation results per pair (orderbook snapshots, yields, costs, recommendation).
@@ -187,6 +187,7 @@ Uses the Kalshi public REST API at `https://api.elections.kalshi.com/trade-api/v
 - Event status from the API is `None` -- do not filter events by status.
 - Orderbook endpoint returns bids only: YES bid at $P = NO ask at $(1-P). Arrays arrive sorted ascending from API; code reverses to walk best-first.
 - No API key needed for market data endpoints.
+- Series have a `tags` field (e.g., `["Tennis"]`). The `/series` endpoint accepts a `tags` query parameter for server-side filtering (e.g., `GET /series?category=Sports&tags=Tennis`).
 
 ## Deployment
 

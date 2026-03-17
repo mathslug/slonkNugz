@@ -31,32 +31,34 @@ log = logging.getLogger("scan")
 # ── Fetching ─────────────────────────────────────────────────────────────────
 
 
-def fetch_series(category: str, filter_term: str | None) -> list[dict]:
-    """Fetch series for a category, optionally filtering by keyword."""
-    series = []
-    cursor = None
-    while True:
-        params = {"limit": 200, "category": category}
-        if cursor:
-            params["cursor"] = cursor
-        resp = requests.get(f"{KALSHI_BASE}/series", params=params, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        batch = data.get("series", [])
-        series.extend(batch)
-        cursor = data.get("cursor")
-        if not cursor or not batch:
-            break
+def fetch_series(category: str, filter_tags: list[str] | None = None) -> list[dict]:
+    """Fetch series for a category, optionally filtering by Kalshi API tags.
 
-    if filter_term:
-        terms = _expand_filter_terms([t.strip().lower() for t in filter_term.split(",")])
-        series = [
-            s for s in series
-            if any(
-                t in s.get("ticker", "").lower() or t in s.get("title", "").lower()
-                for t in terms
-            )
-        ]
+    When filter_tags is provided, makes a separate paginated API call per tag
+    and merges results (deduped by series ticker).
+    """
+    tags_to_query = filter_tags or [None]
+    seen: set[str] = set()
+    series: list[dict] = []
+    for tag in tags_to_query:
+        cursor = None
+        while True:
+            params = {"limit": 200, "category": category}
+            if tag:
+                params["tags"] = tag
+            if cursor:
+                params["cursor"] = cursor
+            resp = requests.get(f"{KALSHI_BASE}/series", params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            batch = data.get("series", [])
+            for s in batch:
+                if s["ticker"] not in seen:
+                    seen.add(s["ticker"])
+                    series.append(s)
+            cursor = data.get("cursor")
+            if not cursor or not batch:
+                break
     return series
 
 
@@ -83,7 +85,7 @@ def fetch_events_with_markets(series_ticker: str) -> list[dict]:
     return events
 
 
-def fetch_and_store_markets(category: str, conn, filter_term: str | None = None) -> set[str]:
+def fetch_and_store_markets(category: str, conn, filter_tags: list[str] | None = None) -> set[str]:
     """Fetch open markets for a category and upsert into DB incrementally.
 
     Upserts each series' markets immediately so we never hold all 17K+
@@ -91,7 +93,7 @@ def fetch_and_store_markets(category: str, conn, filter_term: str | None = None)
     (for deactivation tracking).
     """
     print(f"Fetching {category} series...", flush=True)
-    all_series = fetch_series(category, filter_term)
+    all_series = fetch_series(category, filter_tags)
     print(f"  {len(all_series)} series")
 
     active_tickers: set[str] = set()
@@ -101,6 +103,8 @@ def fetch_and_store_markets(category: str, conn, filter_term: str | None = None)
     recorded_total = 0
     for i, s in enumerate(all_series):
         sticker = s["ticker"]
+        tags = s.get("tags", [])
+        sport_tag = tags[0] if tags else ""
         for attempt in range(3):
             try:
                 events = fetch_events_with_markets(sticker)
@@ -133,6 +137,7 @@ def fetch_and_store_markets(category: str, conn, filter_term: str | None = None)
                     "yes_ask_dollars": m.get("yes_ask_dollars"),
                     "no_ask_dollars": m.get("no_ask_dollars"),
                     "volume": vol,
+                    "sport_tag": sport_tag,
                 })
         if batch:
             new, updated = db_mod.upsert_tickers(conn, batch)
@@ -151,221 +156,6 @@ def fetch_and_store_markets(category: str, conn, filter_term: str | None = None)
 
 
 # ── Pre-filtering ────────────────────────────────────────────────────────────
-
-
-
-SPORT_FAMILIES = {
-    # ── Racket sports ─────────────────────────────────────────────────
-    "tennis": [
-        "KXATP", "KXWTA",
-        "KXFOMEN", "KXFOWOMEN", "KXFOPEN",             # French Open
-        "KXGRANDSLAM",
-        "KXAOMEN", "KXAOWOMEN",                         # Australian Open
-        "KXUSOMEN", "KXUSOPEN", "KXUSOWOMEN",           # US Open (KXUSOPENCUP → soccer via longer match)
-        "KXWMENSINGLES", "KXWWOMENSINGLES",              # Wimbledon
-        "KXDAVISCUP", "KXUNITEDCUP", "KXLAVERCUP",      # team events
-        "KXTENNIS", "KXEXHIBITION", "KXBATTLEOFSEXES", "KXSIXKINGS",
-        "KXDDF", "KXCHALLENGERMATCH",
-    ],
-    "table_tennis": ["KXTABLETENNIS", "KXTTELITE"],
-
-    # ── American pro team sports ──────────────────────────────────────
-    "mlb": [
-        "KXMLB", "KXLEADERMLB",
-        "KXNEXTTEAMMLB", "KXCITYMLBEXPAND",
-        "KXTEAMSINWS", "KXWSAL", "KXWSNL",
-        "KXNLGAME", "KXNLMVP", "KXALMVP",
-        "KXNEXTTEAMSKUBAL",                                # player destination markets
-    ],
-    "nba": [
-        "KXNBA", "KXRECORDNBA", "KXLEADERNBA",
-        "KXCITYNBAEXPAND", "KXNEXTTEAMNBA",
-        "KXCOACHOUTNBA", "KXNEXTCOACHOUTNBA",
-        "KXTRADEOFFNBA", "KXTEAMSINNBAF",
-        "KXMVENBA",
-        "KXFIRSTPICKNBA", "KXTOP3NBADRAFT", "KXPLAYEROPTIONNBA",
-        "KXALLSTARROSTER",
-        "KXKNUEPPEL3PTREC", "KXSHAI20PTREC", "KXWINSTREAKOKC",  # player/team props
-        "KXQUADRUPLEDOUBLE",
-        "KXLBJRETIRE", "KXPLAYTOGETHERJBJT", "KXSPORTSOWNERLBJ",
-    ],
-    "wnba": ["KXWNBA"],
-    "nfl": [
-        "KXNFL", "KXSB", "KXRECORDNFL", "KXLEADERNFL",
-        "KXSUPERBOWL",                                  # NOT KXSUP (collides with KXSUPERLIG soccer)
-        "KXNEXTTEAMNFL", "KXCOACHOUTNFL", "KXNEXTCOACHOUTNFL", "KXNEXTNFLCOACH",
-        "KXSTARTINGQB",
-        "KXTRADEOFFNFL", "KXTEAMSINSB",
-        "KXMVENFL",
-        "KXAFC", "KXNFC",                               # conference champs (KXAFCON/KXAFCCL → soccer via longer match)
-        "KXKELCERETIRE", "KXARODGRETIRE",                # retirement props
-    ],
-    "nhl": [
-        "KXNHL",
-        "KXTEAMSINSC", "KXCONNSMYTHE", "KXCANADACUP",
-    ],
-    "ufl": ["KXUFL"],
-
-    # ── NCAA ──────────────────────────────────────────────────────────
-    "ncaa_bball": [
-        "KXNCAAMB", "KXNCAAWB", "KXNCAAB",              # men's / women's / conf tournaments
-        "KXMARMAD", "KXMAKEMARMAD", "KXWMARMAD",         # March Madness
-        "KXBIG12", "KXBIG10", "KXBIGEAST",               # conf reg season
-        "KXACC", "KXSEC", "KXWCC", "KXA10", "KXAAC",
-        "KXWMA", "KXMWR",
-        "KXNCAANIT",
-        "KXCOVEREA",                                      # EA Sports cover athlete
-    ],
-    "ncaa_football": [
-        "KXNCAAF",
-        "KXNCAAPLAYOFF",
-        "KXCOACHOUTNCAAFB",
-        "KXCFB", "KXCFP",                               # college football playoff
-        "KXHEISMAN", "KXDEFHEISMAN",
-        "KXNDJOINCONF", "KXCOLLEGEGAMEDAYGUEST",         # conference realignment, media props
-    ],
-    "ncaa_baseball": ["KXNCAABASE", "KXNCAAMBACH"],
-    "ncaa_hockey":   ["KXNCAAHOCK"],
-    "ncaa_lacrosse": ["KXNCAALAX", "KXNCAAMLAX", "KXLAX"],
-
-    # ── Soccer ────────────────────────────────────────────────────────
-    "soccer": [
-        # England
-        "KXEPL", "KXPREMIERLEAGUE",
-        "KXEFL", "KXFACUP", "KXEFLCUP",
-        "KXEWSL", "KXPFAPOY",
-        # Spain
-        "KXLALIGA", "KXCOPADELREY", "KXESPSUPERCUP",
-        # Germany
-        "KXBUNDESLIGA", "KXDFBPOKAL",
-        # Italy
-        "KXSERIEA", "KXSERIEB", "KXCOPPAITALIA", "KXITASUPERCUP",
-        # France
-        "KXLIGUE1", "KXCOUPEDEFRANCE", "KXFRASUPERCUP",
-        # Netherlands
-        "KXEREDIVISIE", "KXKNVBCUP",
-        # Portugal
-        "KXLIGAPORTUGAL", "KXTACAPORT",
-        # Other European
-        "KXBEL",                                         # Belgian Pro League
-        "KXSUPERLIG",                                    # Turkish Super Lig (NOT KXSUP!)
-        "KXDENSUPERLIGA", "KXDANISHSUPERLIGA",
-        "KXEKSTRAKLASA",
-        "KXSLGREECE", "KXSCOTTISHPREM", "KXSWISSLEAGUE", "KXHNL",
-        # Americas
-        "KXMLS", "KXNWSL", "KXLIGAMX", "KXBRASILEIRO", "KXARGPREMDIV",
-        "KXUSOPENCUP",
-        # Asia / Middle East / Africa
-        "KXSAUDIPL", "KXJLEAGUE", "KXKLEAGUE", "KXALEAGUE",
-        "KXAFCON", "KXAFCCL",                            # longer than KXAFC (→ NFL)
-        # European cups
-        "KXUCL", "KXUEL", "KXUECL", "KXUEFA", "KXCLUBWC",
-        # International
-        "KXFIFA", "KXMENWORLDCUP", "KXMWORLDCUP",
-        "KXWCGAME", "KXWCGOAL", "KXWCGROUP", "KXWCROUND",
-        "KXINTLFRIENDLY",
-        # Generic
-        "KXSOCCER", "KXLEADERUCLGOALS", "KXBALLONDOR",
-        # Transfers / managers / props
-        "KXJOINRONALDO", "KXJOINMESSI", "KXLAMINEYAMAL",
-        "KXNEXTMANAGERMANU", "KXNEXTMANAGEREPL",
-        "KXWINSTREAKMANU",
-        "KXTRINITYRODMANNWSL",
-        "KXDIMAYORGAME",                                 # Colombian Liga Dimayor
-    ],
-
-    # ── Combat sports ─────────────────────────────────────────────────
-    "boxing":  ["KXBOXING"],
-    "ufc":     ["KXUFC", "KXCARDPRESENCEUFCWH", "KXMCGREGORFIGHTNEXT"],
-
-    # ── Motorsport ────────────────────────────────────────────────────
-    "f1":      ["KXF1"],
-    "nascar":  ["KXNASCAR"],
-    "indycar": ["KXINDY500"],
-
-    # ── Golf ──────────────────────────────────────────────────────────
-    "golf": [
-        "KXPGA", "KXTGL", "KXLIV", "KXDPWORLDTOUR",
-        "KXMASTERS", "KXTHEOPEN",
-        "KXSCOTTIESLAM", "KXHOLEINONE", "KXRYDERCUP",
-        "KXGENESISINVITATIONAL", "KXPHOENIXOPEN",
-        "KXBRYSONCOURSERECORDS",                         # player props
-    ],
-
-    # ── Other individual sports ───────────────────────────────────────
-    "darts":   ["KXPREMDARTS", "KXDARTSMATCH"],
-    "chess": [
-        "KXCHESS", "KXFIDE", "KXFCSOUTHAFRICA", "KXWEISSENHAUS",
-        "KXNORWAYCHESS", "KXSINQUEFIELD", "KXSPEEDCHESS", "KXSAGRANDSLAM",
-    ],
-    "cricket": [
-        "KXCRICKET", "KXIPL", "KXWPL",
-        "KXASIACUPCRICKET", "KXT20", "KXSSHIELD",
-    ],
-    "rugby":   ["KXRUGBY", "KXSIXNATIONS"],
-    "surfing": ["KXSURF", "KXWOTW"],
-    "cycling": ["KXTOURDEFRANCE"],
-    "pickleball": ["KXPICKLEBALL"],
-    "padel":   ["KXPPL"],
-
-    # ── Esports ───────────────────────────────────────────────────────
-    "esports": [
-        "KXCS2", "KXCSGO", "KXVALORANT", "KXLOL", "KXLEAGUE",
-        "KXDOTA2", "KXOVERWATCH", "KXCOD",
-        "KXBRAWLSTARS", "KXPUBG", "KXR6", "KXCROSSFIRE",
-        "KXEWC",                                         # Esports World Cup
-        "KXPGL", "KXSTARLADDER",
-        "KXMIDSEASONINVITATIONAL", "KXBLASTRIVALS", "KXBOUNTY",
-        "KXVALGC", "KXVALPL", "KXVCCHAMPIONS",
-        "KXWORLDSMVP",                                   # must be longer than KXWO (→ winter olympics)
-    ],
-
-    # ── International basketball ──────────────────────────────────────
-    "basketball_intl": [
-        "KXACBGAME", "KXBBLGAME", "KXGBLGAME", "KXNBLGAME",
-        "KXARGLNB", "KXCBA",
-        "KXEUROCUP", "KXEUROLEAGUE",
-        "KXFIBACHAMP", "KXFIBAECUP",
-        "KXJBLEAGUE", "KXKBL", "KXBSL", "KXVTB", "KXLNBELITE",
-        "KXUNRIVALED", "KXBBSERIEA", "KXABAGAME", "KXTNCBASKETBALL",
-    ],
-
-    # ── International hockey ──────────────────────────────────────────
-    "hockey_intl": [
-        "KXIIHF", "KXDEL", "KXELH", "KXKHL", "KXLIIGA", "KXSHL", "KXAHL",
-    ],
-
-    # ── Winter Olympics ───────────────────────────────────────────────
-    "winter_olympics": ["KXWO"],
-
-    # ── Other leagues ─────────────────────────────────────────────────
-    "cfl":     ["KXGREYCUP"],
-    "frisbee": ["KXUFA"],
-}
-
-# Reverse lookup: prefix -> sport (longest prefixes first for correct matching)
-_PREFIX_TO_SPORT: dict[str, str] = {}
-for _sport, _prefixes in SPORT_FAMILIES.items():
-    for _prefix in _prefixes:
-        _PREFIX_TO_SPORT[_prefix] = _sport
-_SORTED_PREFIXES = sorted(_PREFIX_TO_SPORT.keys(), key=len, reverse=True)
-
-
-def _get_sport(series_ticker: str) -> str | None:
-    """Return the sport family for a series ticker, or None if unknown."""
-    for prefix in _SORTED_PREFIXES:
-        if series_ticker.startswith(prefix):
-            return _PREFIX_TO_SPORT[prefix]
-    return None
-
-
-def _expand_filter_terms(raw_terms: list[str]) -> list[str]:
-    """Expand sport family names into series ticker prefixes via SPORT_FAMILIES."""
-    expanded = list(raw_terms)
-    for term in raw_terms:
-        if term in SPORT_FAMILIES:
-            expanded.extend(p.lower() for p in SPORT_FAMILIES[term])
-    return expanded
 
 
 ENTITY_BLOCKLIST = {
@@ -393,8 +183,8 @@ def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, 
             continue
         for a, b in combinations(entity_markets, 2):
             if a["series_ticker"] != b["series_ticker"] and a["event_ticker"] != b["event_ticker"]:
-                sport_a = _get_sport(a["series_ticker"])
-                sport_b = _get_sport(b["series_ticker"])
+                sport_a = a.get("sport_tag") or None
+                sport_b = b.get("sport_tag") or None
                 if sport_a and sport_b and sport_a != sport_b:
                     filtered_count += 1
                     continue
@@ -673,8 +463,8 @@ def main() -> None:
         help="Kalshi category to scan (default: Sports)",
     )
     parser.add_argument(
-        "--filter", "-f", default=None, metavar="KEYWORD",
-        help="filter series by keyword (e.g. 'tennis,atp,grand slam')",
+        "--filter", "-f", default=None, metavar="TAG",
+        help="filter series by Kalshi API tag (e.g. 'tennis' or 'Tennis,Soccer')",
     )
     parser.add_argument(
         "--min-volume", type=int, default=200,
@@ -725,7 +515,8 @@ def main() -> None:
     # ── Fetch or use DB ──────────────────────────────────────────────────
     if not args.from_db:
         t0 = time.time()
-        active_tickers = fetch_and_store_markets(args.category, conn, filter_term=args.filter)
+        filter_tags = [t.strip().title() for t in args.filter.split(",")] if args.filter else None
+        active_tickers = fetch_and_store_markets(args.category, conn, filter_tags=filter_tags)
         if not active_tickers:
             print("No open markets found.")
             sys.exit(0)
@@ -743,11 +534,11 @@ def main() -> None:
 
     # Apply --filter to restrict which entity groups go to LLM screening
     if args.filter:
-        terms = _expand_filter_terms([t.strip().lower() for t in args.filter.split(",")])
+        filter_tags_lower = [t.strip().lower() for t in args.filter.split(",")]
         filtered_groups = {}
         for entity, entity_markets in groups.items():
             if any(
-                any(t in m.get("series_ticker", "").lower() or t in m.get("title", "").lower() for t in terms)
+                m.get("sport_tag", "").lower() in filter_tags_lower
                 for m in entity_markets
             ):
                 filtered_groups[entity] = entity_markets
