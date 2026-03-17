@@ -20,7 +20,7 @@ Eight code files + templates + deploy scripts:
 
 - **`fetch_yields.py`** -- fetches Treasury CMT daily yield curve data from treasury.gov and stores in the DB.
 
-- **`notify.py`** -- sends email notifications for BUY recommendations via Mailgun HTTP API. Called by `evaluate.py`.
+- **`notify.py`** -- sends email notifications for BUY recommendations via Gmail SMTP. Called by `evaluate.py`.
 
 - **`templates/`** -- Jinja2 templates (`base.html`, `review.html`, `detail.html`, `trades.html`, `signals.html`, `settings.html`) using Pico CSS.
 
@@ -206,7 +206,7 @@ Deployed to a single Digital Ocean droplet (AlmaLinux 10, s-1vcpu-512mb-10gb) at
 - **nginx** -- reverse proxy with basic auth + Let's Encrypt SSL
 - **gunicorn** -- WSGI server via systemd (`slonk-arb.service`)
 - **cron** -- scheduled jobs via `/etc/cron.d/slonk-arb`
-- **Mailgun** -- email notifications for BUY signals
+- **Gmail SMTP** -- email notifications for BUY signals
 
 ### Deploy scripts
 
@@ -225,14 +225,14 @@ Deployed to a single Digital Ocean droplet (AlmaLinux 10, s-1vcpu-512mb-10gb) at
 
 ### Email notifications
 
-**`notify.py`** -- `send_buy_alert(results)` sends a summary email via Mailgun HTTP API when BUY signals are found. Called automatically by `evaluate.py`. Requires env vars: `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `NOTIFY_EMAIL`.
+**`notify.py`** -- `send_buy_alert(results)` sends a summary email via Gmail SMTP when BUY signals are found. Called automatically by `evaluate.py`. Requires env vars: `SMTP_USER`, `SMTP_PASSWORD`, `NOTIFY_EMAIL`.
 
 ### Environment variables (`.env`)
 
 ```
 ANTHROPIC_API_KEY=...
-MAILGUN_API_KEY=...
-MAILGUN_DOMAIN=...
+SMTP_USER=...
+SMTP_PASSWORD=...
 NOTIFY_EMAIL=...
 ```
 
@@ -242,3 +242,6 @@ NOTIFY_EMAIL=...
 - `SSH_PRIVATE_KEY` -- deploy user's private key
 - `ANTHROPIC_KEY` -- Anthropic API key (written to `.env` on first deploy)
 - `SLONK_ADMIN_PASSWORD` -- webapp basic auth password (written to `.env` on first deploy)
+- `SMTP_USER` -- Gmail address for sending notifications
+- `SMTP_PASSWORD` -- Gmail app password for SMTP authentication
+- `NOTIFY_EMAIL` -- recipient email address for BUY alerts

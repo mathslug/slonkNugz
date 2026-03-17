@@ -1,20 +1,20 @@
-"""Send email notifications for BUY recommendations via Mailgun."""
+"""Send email notifications for BUY recommendations via Gmail SMTP."""
 
 import logging
 import os
-
-import requests
+import smtplib
+from email.message import EmailMessage
 
 log = logging.getLogger("notify")
 
 
 def send_buy_alert(results: list[dict]) -> bool:
     """Send email summarizing BUY recommendations. Returns True on success."""
-    api_key = os.environ.get("MAILGUN_API_KEY")
-    domain = os.environ.get("MAILGUN_DOMAIN")
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
     to_email = os.environ.get("NOTIFY_EMAIL")
-    if not all([api_key, domain, to_email]):
-        log.warning("Mailgun not configured, skipping notification")
+    if not all([smtp_user, smtp_password, to_email]):
+        log.warning("SMTP not configured, skipping notification")
         return False
 
     buys = [r for r in results if r.get("recommendation") == "buy"]
@@ -34,17 +34,16 @@ def send_buy_alert(results: list[dict]) -> bool:
         )
 
     body = "\n".join(lines)
-    resp = requests.post(
-        f"https://api.mailgun.net/v3/{domain}/messages",
-        auth=("api", api_key),
-        data={
-            "from": f"Kalshi Arb <alerts@{domain}>",
-            "to": [to_email],
-            "subject": f"[Kalshi Arb] {len(buys)} BUY signal(s)",
-            "text": body,
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
+    msg = EmailMessage()
+    msg["Subject"] = f"[Kalshi Arb] {len(buys)} BUY signal(s)"
+    msg["From"] = smtp_user
+    msg["To"] = to_email
+    msg.set_content(body)
+
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+
     log.info("Sent BUY alert email (%d recommendations)", len(buys))
     return True
