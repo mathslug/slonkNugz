@@ -13,11 +13,13 @@
     </ul>
     <ul>
       <li><a href="/">Dashboard</a></li>
-      <li><a href="/review">Review Queue</a></li>
+      <li style="margin-left:12px"><strong style="font-size:0.85rem;opacity:0.6">Pairs:</strong></li>
+      <li><a href="/review">Queue</a></li>
       <li><a href="/reviewed">Reviewed</a></li>
-      <li><a href="/trades">Trades</a></li>
-      <li><a href="/evaluations">Evaluations</a></li>
-      <li><a href="/settings">Settings</a></li>
+      <li style="margin-left:12px"><strong style="font-size:0.85rem;opacity:0.6">Trades:</strong></li>
+      <li><a href="/trades">Recs</a></li>
+      <li><a href="/evaluations">Stream</a></li>
+      <li><a href="/settings">Benchmark</a></li>
     </ul>
   </nav>
 
@@ -43,6 +45,9 @@
         <p style="font-size:2rem;text-align:center">{{ stats.rejected or 0 }}</p>
       </article>
     </div>
+    <article>
+      <p><strong>How it works:</strong> An LLM scans Kalshi sports markets for logical implication pairs (e.g. "Alcaraz wins French Open" &rarr; "Alcaraz wins a Grand Slam"). Go to the <a href="/review"><strong>Queue</strong></a> to review and confirm these relationships. Then check <a href="/trades"><strong>Recs</strong></a> periodically to see if any confirmed pairs have become profitable trades.</p>
+    </article>
     <p>No relationship: {{ stats.no_relationship or 0 }} | Need more info: {{ stats.need_more_info or 0 }}</p>
     <p><small><a href="https://github.com/mathslug/Karb_Scanner" target="_blank">GitHub</a></small></p>
     {% endif %}
