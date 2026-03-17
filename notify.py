@@ -35,7 +35,7 @@ def send_buy_alert(results: list[dict]) -> bool:
 
     body = "\n".join(lines)
     msg = EmailMessage()
-    msg["Subject"] = f"[Kalshi Arb] {len(buys)} BUY signal(s)"
+    msg["Subject"] = f"[Karb Scanner] {len(buys)} BUY signal(s)"
     msg["From"] = smtp_user
     msg["To"] = to_email
     msg.set_content(body)

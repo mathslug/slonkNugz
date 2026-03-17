@@ -8,7 +8,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 
 # Fetch Treasury yields + scan tennis, hockey + evaluate (chained)
 # 08:00 UTC / 4:00 AM ET / 1:00 AM PT
-0 8 * * * slonk /opt/slonk-arb/deploy/run.sh fetch_yields.py --db /var/lib/slonk-arb/slonk_arb.db >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh scan.py --from-db --filter "tennis,hockey" --min-volume 200 --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/scan.log >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh evaluate.py --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate.log >> /var/log/slonk-arb/cron.log 2>&1 && /opt/slonk-arb/deploy/run.sh evaluate.py --mode high --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate-high.log >> /var/log/slonk-arb/cron.log 2>&1
+0 8 * * * slonk /opt/slonk-arb/deploy/run.sh fetch_yields.py --db /var/lib/slonk-arb/slonk_arb.db >> /var/log/slonk-arb/cron.log 2>&1 ; /opt/slonk-arb/deploy/run.sh scan.py --from-db --filter "tennis,hockey" --min-volume 200 --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/scan.log >> /var/log/slonk-arb/cron.log 2>&1 ; /opt/slonk-arb/deploy/run.sh evaluate.py --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate.log >> /var/log/slonk-arb/cron.log 2>&1 ; /opt/slonk-arb/deploy/run.sh evaluate.py --mode high --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate-high.log >> /var/log/slonk-arb/cron.log 2>&1
+
+# Midday re-evaluation of confirmed + high-confidence pairs
+# 20:00 UTC / 4:00 PM ET / 1:00 PM PT
+0 20 * * * slonk /opt/slonk-arb/deploy/run.sh evaluate.py --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate.log >> /var/log/slonk-arb/cron.log 2>&1 ; /opt/slonk-arb/deploy/run.sh evaluate.py --mode high --db /var/lib/slonk-arb/slonk_arb.db --log-file /var/log/slonk-arb/evaluate-high.log >> /var/log/slonk-arb/cron.log 2>&1
 
 # Backup DB weekly (Sunday 3:00 AM ET / 7:00 UTC)
 0 7 * * 0 slonk cp /var/lib/slonk-arb/slonk_arb.db /var/lib/slonk-arb/backups/slonk_arb_$(date +\%Y\%m\%d).db 2>&1
