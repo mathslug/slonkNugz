@@ -181,6 +181,27 @@ ENTITY_BLOCKLIST = {
 }
 
 
+def filter_groups_by_sport(
+    groups: dict[str, list[dict]], filter_tags: list[str],
+) -> dict[str, list[dict]]:
+    """Filter entity groups to only keep markets matching the given sport tags.
+
+    Filters at the market level: only markets whose sub_sport or sport_tag
+    matches are retained. Entities with no matching markets are dropped.
+    """
+    filter_lower = [t.strip().lower() for t in filter_tags]
+    filtered = {}
+    for entity, markets in groups.items():
+        matching = [
+            m for m in markets
+            if m.get("sub_sport", "").lower() in filter_lower
+            or m.get("sport_tag", "").lower() in filter_lower
+        ]
+        if matching:
+            filtered[entity] = matching
+    return filtered
+
+
 def generate_candidate_pairs(groups: dict[str, list[dict]]) -> list[tuple[dict, dict]]:
     """Generate cross-series candidate pairs for each entity.
 
@@ -551,17 +572,9 @@ def main() -> None:
     print("\nGrouping markets by entity (from DB)...")
     groups = db_mod.get_tickers_by_entity(conn, min_volume=args.min_volume)
 
-    # Apply --filter to restrict which entity groups go to LLM screening
+    # Apply --filter to restrict which markets go to LLM screening
     if args.filter:
-        filter_lower = [t.strip().lower() for t in args.filter.split(",")]
-        filtered_groups = {}
-        for entity, entity_markets in groups.items():
-            if any(
-                m.get("sub_sport", "").lower() in filter_lower
-                or m.get("sport_tag", "").lower() in filter_lower
-                for m in entity_markets
-            ):
-                filtered_groups[entity] = entity_markets
+        filtered_groups = filter_groups_by_sport(groups, args.filter.split(","))
         skipped_entities = len(groups) - len(filtered_groups)
         groups = filtered_groups
         if skipped_entities:

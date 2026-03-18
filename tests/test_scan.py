@@ -4,6 +4,7 @@ from scan import (
     ENTITY_BLOCKLIST,
     _extract_json,
     _FILTER_TO_API_TAG,
+    filter_groups_by_sport,
     format_pair_for_llm,
     generate_candidate_pairs,
 )
@@ -186,3 +187,48 @@ def test_filter_tag_pro_football():
 
 def test_filter_tag_college_football():
     assert _FILTER_TO_API_TAG["college football"] == "Football"
+
+
+# ── filter_groups_by_sport ───────────────────────────────────────────────────
+
+
+def test_filter_drops_non_matching_markets():
+    """Filtering 'hockey' on a mixed entity keeps only hockey markets."""
+    groups = {
+        "Denver": [
+            _market("NHL-DEN", "KNHL", event="E1", entity="Denver", sport="Hockey", sub_sport="NHL"),
+            _market("NFL-DEN", "KNFL", event="E2", entity="Denver", sport="Football", sub_sport="Pro Football"),
+            _market("NFL2-DEN", "KNFLPLAY", event="E3", entity="Denver", sport="Football", sub_sport="Pro Football"),
+        ]
+    }
+    filtered = filter_groups_by_sport(groups, ["hockey"])
+    assert "Denver" in filtered
+    assert len(filtered["Denver"]) == 1
+    assert filtered["Denver"][0]["ticker"] == "NHL-DEN"
+
+
+def test_filter_drops_entity_with_no_matches():
+    groups = {
+        "Denver": [
+            _market("NFL-DEN", "KNFL", event="E1", entity="Denver", sport="Football", sub_sport="Pro Football"),
+        ]
+    }
+    filtered = filter_groups_by_sport(groups, ["hockey"])
+    assert "Denver" not in filtered
+
+
+def test_filter_mixed_entity_no_cross_sport_pairs():
+    """End-to-end: filtering + pair generation produces no cross-sport pairs."""
+    groups = {
+        "Denver": [
+            _market("NHL1-DEN", "KNHL", event="E1", entity="Denver", sport="Hockey", sub_sport="NHL"),
+            _market("NHL2-DEN", "KNHLPLAY", event="E2", entity="Denver", sport="Hockey", sub_sport="NHL"),
+            _market("NFL1-DEN", "KNFL", event="E3", entity="Denver", sport="Football", sub_sport="Pro Football"),
+            _market("NFL2-DEN", "KNFLPLAY", event="E4", entity="Denver", sport="Football", sub_sport="Pro Football"),
+        ]
+    }
+    filtered = filter_groups_by_sport(groups, ["hockey"])
+    pairs = generate_candidate_pairs(filtered)
+    assert len(pairs) == 1
+    tickers = {pairs[0][0]["ticker"], pairs[0][1]["ticker"]}
+    assert tickers == {"NHL1-DEN", "NHL2-DEN"}

@@ -14,7 +14,7 @@ jobs:
           host: ${{ secrets.DROPLET_URL }}
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: ANTHROPIC_KEY,SLONK_ADMIN_PASSWORD,SMTP_USER,SMTP_PASSWORD,NOTIFY_EMAIL
+          envs: ANTHROPIC_KEY,SLONK_ADMIN_PASSWORD,SMTP_USER,SMTP_PASSWORD,NOTIFY_EMAIL,FLASK_SECRET_KEY
           script: |
             set -e
             cd /opt/slonk-arb
@@ -26,8 +26,8 @@ jobs:
             sudo cp /opt/slonk-arb/deploy/slonk-arb.cron /etc/cron.d/slonk-arb
             # Create .env from GitHub secrets if missing
             if [ ! -f /var/lib/slonk-arb/.env ]; then
-                printf 'ANTHROPIC_API_KEY=%s\nSLONK_ADMIN_PASSWORD=%s\nSMTP_USER=%s\nSMTP_PASSWORD=%s\nNOTIFY_EMAIL=%s\n' \
-                    "$ANTHROPIC_KEY" "$SLONK_ADMIN_PASSWORD" "$SMTP_USER" "$SMTP_PASSWORD" "$NOTIFY_EMAIL" | sudo tee /var/lib/slonk-arb/.env > /dev/null
+                printf 'ANTHROPIC_API_KEY=%s\nSLONK_ADMIN_PASSWORD=%s\nSMTP_USER=%s\nSMTP_PASSWORD=%s\nNOTIFY_EMAIL=%s\nFLASK_SECRET_KEY=%s\n' \
+                    "$ANTHROPIC_KEY" "$SLONK_ADMIN_PASSWORD" "$SMTP_USER" "$SMTP_PASSWORD" "$NOTIFY_EMAIL" "$FLASK_SECRET_KEY" | sudo tee /var/lib/slonk-arb/.env > /dev/null
                 sudo chown slonk:slonk /var/lib/slonk-arb/.env
                 sudo chmod 600 /var/lib/slonk-arb/.env
             fi
@@ -38,3 +38,4 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          FLASK_SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY }}
