@@ -194,7 +194,8 @@ def filter_groups_by_sport(
     for entity, markets in groups.items():
         matching = [
             m for m in markets
-            if m.get("sub_sport", "").lower() in filter_lower
+            if not m.get("sub_sport") and not m.get("sport_tag")
+            or m.get("sub_sport", "").lower() in filter_lower
             or m.get("sport_tag", "").lower() in filter_lower
         ]
         if matching:

@@ -217,6 +217,17 @@ def test_filter_drops_entity_with_no_matches():
     assert "Denver" not in filtered
 
 
+def test_filter_keeps_tagless_markets():
+    groups = {
+        "Denver": [
+            _market("NHL-DEN", "KNHL", event="E1", entity="Denver", sport="Hockey", sub_sport="NHL"),
+            _market("REC-DEN", "KXRECORD", event="E2", entity="Denver", sport="", sub_sport=""),
+        ]
+    }
+    filtered = filter_groups_by_sport(groups, ["hockey"])
+    assert len(filtered["Denver"]) == 2
+
+
 def test_filter_mixed_entity_no_cross_sport_pairs():
     """End-to-end: filtering + pair generation produces no cross-sport pairs."""
     groups = {
