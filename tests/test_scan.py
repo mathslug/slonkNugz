@@ -40,28 +40,28 @@ def test_cross_series_pairing():
     assert tickers == {"T1", "T2"}
 
 
-def test_same_series_rejected():
+def test_same_series_paired():
+    """generate_candidate_pairs does not filter by series; that's handled upstream."""
     groups = {
         "Alcaraz": [
             _market("T1", "FO", event="E1"),
             _market("T2", "FO", event="E2"),
         ]
     }
-    # Same series, different events — still rejected (same series_ticker)
     pairs = generate_candidate_pairs(groups)
-    assert len(pairs) == 0
+    assert len(pairs) == 1
 
 
-def test_same_event_rejected():
+def test_same_event_paired():
+    """generate_candidate_pairs does not filter by event; that's handled upstream."""
     groups = {
         "Alcaraz": [
             _market("T1", "S1", event="E1"),
             _market("T2", "S2", event="E1"),
         ]
     }
-    # Different series but same event — rejected
     pairs = generate_candidate_pairs(groups)
-    assert len(pairs) == 0
+    assert len(pairs) == 1
 
 
 def test_cross_sport_rejected():

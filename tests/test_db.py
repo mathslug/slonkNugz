@@ -95,8 +95,8 @@ def test_deactivate_empty_set(conn):
 def test_get_tickers_by_entity_groups(conn):
     # Two tickers with same entity in different series -> grouped
     db.upsert_tickers(conn, [
-        _make_market(ticker="T1", series_ticker="S1", yes_sub_title="Alcaraz"),
-        _make_market(ticker="T2", series_ticker="S2", yes_sub_title="Alcaraz"),
+        _make_market(ticker="T1", series_ticker="S1", event_ticker="E1", yes_sub_title="Alcaraz"),
+        _make_market(ticker="T2", series_ticker="S2", event_ticker="E2", yes_sub_title="Alcaraz"),
     ])
     groups = db.get_tickers_by_entity(conn)
     assert "Alcaraz" in groups

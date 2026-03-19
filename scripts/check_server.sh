@@ -6,7 +6,7 @@ set -euo pipefail
 HOST="almalinux@karb.mathslug.com"
 
 echo "==> Deployed commit:"
-ssh "$HOST" "sudo git -C /opt/slonk-arb log --oneline -3"
+ssh "$HOST" "sudo git -C /opt/slonk-arb -c safe.directory=/opt/slonk-arb log --oneline -3"
 
 echo ""
 echo "==> Service status:"
@@ -22,4 +22,4 @@ ssh "$HOST" "sudo cat /etc/cron.d/slonk-arb"
 
 echo ""
 echo "==> Disk usage:"
-ssh "$HOST" "du -sh /var/lib/slonk-arb/slonk_arb.db /var/log/slonk-arb/ 2>/dev/null"
+ssh "$HOST" "du -sh /var/lib/slonk-arb/slonk_arb.db /var/log/slonk-arb/ 2>/dev/null; echo ''; df -h /"
