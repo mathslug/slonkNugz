@@ -1,12 +1,25 @@
-# Full re-evaluation of confirmed and high-confidence pairs, twice a day.
+# Full re-evaluation of every live confirmed and high-confidence pair.
+#
+# A sweep is what promotes a pair into the hot tier: karb-job@hot re-checks
+# only pairs whose *latest stored* tob_cost is near parity, so a pair drifting
+# toward parity is invisible to the hot job until a sweep evaluates it. Sweep
+# cadence, not hot cadence, is what bounds how long a new opportunity can sit
+# unnoticed. At ~5 minutes a run that bound is cheap to shorten.
 
 [Unit]
-Description=karb — evaluation sweep (15:00 and 20:00 UTC)
+Description=karb — evaluation sweep (every 2h, except 08:00)
 
 [Timer]
-OnCalendar=*-*-* 15:00:00 UTC
-OnCalendar=*-*-* 20:00:00 UTC
-Persistent=true
+# 08:00 is absent on purpose: karb-job@daily runs the same two evaluate passes
+# then. The 07:35 sports fetch runs ~28 minutes and bulk-writes the same
+# database, so 06:00 and 10:00 straddle that window rather than landing in it.
+OnCalendar=*-*-* 00,02,04,06,10,12,14,16,18,20,22:00:00 UTC
+
+# No Persistent=. It was worth catching up a missed sweep when the next one was
+# up to 19 hours away; at two hours the prices a boot-time replay would fetch
+# are the ones the next scheduled run fetches anyway. Same reasoning as
+# karb-job@hot.timer.
+Persistent=false
 
 [Install]
 WantedBy=timers.target

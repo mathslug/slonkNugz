@@ -44,6 +44,28 @@ ssh "$PI" 'for f in /var/lib/rpi-health/jobs/karb.*; do
 done'
 
 echo ""
+echo "==> Job durations (last 3 days):"
+# The user systemd manager tags its own "Starting"/"Finished" lines for a job
+# with USER_UNIT=; the job's stdout is tagged _SYSTEMD_USER_UNIT=. Pairing the
+# manager's two lines gives wall time, which is what sets how tightly the
+# timers can be spaced.
+for job in sports daily sweep hot; do
+    ssh "$PI" "sudo journalctl _UID=${SVC_UID} USER_UNIT=karb-job@${job}.service \
+        --since '3 days ago' --no-pager -o short-unix 2>/dev/null" \
+    | awk -v job="$job" '
+        /Starting/ { t = $1 + 0; next }
+        /Finished|Deactivated successfully/ {
+            if (t > 0) { d[n++] = $1 - t; t = 0 }
+        }
+        END {
+            if (n == 0) { printf "  %-8s no completed runs\n", job; exit }
+            s = 0; mx = 0
+            for (i = 0; i < n; i++) { s += d[i]; if (d[i] > mx) mx = d[i] }
+            printf "  %-8s %2d runs   avg %4ds   max %4ds\n", job, n, s / n, mx
+        }'
+done
+
+echo ""
 echo "==> Recent job failures:"
 # sudo + _UID match: the login user is not in systemd-journal, so reading
 # podsvc's user journal as podsvc returns nothing.

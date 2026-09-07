@@ -1,18 +1,19 @@
-# Hourly re-check of pairs whose latest top-of-book cost is near parity —
-# a small set, ~2 minutes, catching intraday dislocations between sweeps.
+# Re-check of pairs whose latest top-of-book cost is near parity — a small set,
+# ~30 seconds, catching intraday dislocations between full sweeps.
 
 [Unit]
-Description=karb — hot-tier re-check (hourly at :30)
+Description=karb — hot-tier re-check (every 15 min)
 
 [Timer]
-OnCalendar=*-*-* *:30:00 UTC
+# :07, :22, :37, :52 — off the top of the hour, where the two-hourly sweep
+# runs, and off 07:35, where the sports fetch starts. Both write this database.
+OnCalendar=*-*-* *:07/15:00 UTC
 
 # No Persistent=. This job is about prices right now; running a missed one at
 # boot would burn API calls to answer a question that has expired.
 Persistent=false
 
-# Decorrelates this from karb-job@sports.timer, which is also due at 07:30, and
-# keeps 24 identical requests a day off the same second of the clock.
+# Keeps 96 identical requests a day off the same second of the clock.
 RandomizedDelaySec=90
 
 [Install]

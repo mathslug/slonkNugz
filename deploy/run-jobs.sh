@@ -79,7 +79,7 @@ receipt() {
 }
 
 case "$JOB" in
-  # 07:30 UTC — fetch every sports ticker into the DB. No LLM calls.
+  # 07:35 UTC — fetch every sports ticker into the DB. No LLM calls.
   sports)
     step "scan sports" \
       scan.py --category Sports --max-pairs 0 --db "$DB" --log-file -
@@ -105,8 +105,9 @@ case "$JOB" in
       evaluate.py --mode high --db "$DB" --log-file -
     ;;
 
-  # 15:00 and 20:00 UTC — full re-evaluation of confirmed and
-  # high-confidence pairs.
+  # Every 2 hours except 08:00 — full re-evaluation of confirmed and
+  # high-confidence pairs. Also what refreshes hot-tier membership: the hot
+  # job only re-checks pairs a sweep has already stored near parity.
   sweep)
     step "evaluate" \
       evaluate.py --db "$DB" --log-file -
@@ -114,8 +115,8 @@ case "$JOB" in
       evaluate.py --mode high --db "$DB" --log-file -
     ;;
 
-  # Every hour at :30 — re-check only pairs whose latest top-of-book cost is
-  # near parity. Small set, ~2 min; catches intraday dislocations between
+  # Every 15 minutes — re-check only pairs whose latest top-of-book cost is
+  # near parity. Small set, ~30s; catches intraday dislocations between
   # sweeps.
   hot)
     step "evaluate hot" \

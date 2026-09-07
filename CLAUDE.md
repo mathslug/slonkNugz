@@ -36,7 +36,7 @@ Twelve code files + templates + container/deploy files + tests:
 
 - **`deploy/`** -- `karb.container` (Quadlet unit for the web UI), `units/` (one templated job service + four timers), `run-jobs.sh` (runs one scheduled job as short-lived containers). Retired droplet-era files kept for reference only: `cloud-init.yml`, `rebuild.sh`, `run.sh`, `slonk-arb.cron`. `run_scan_gpu.sh` provisions the LLM backend via the orchestrator named in `SLONK_LLM_ORCH` (default `gpu_droplet.py`), runs the scan against it with the orchestrator-provided `LLM_MODEL`, and always destroys it (trap on EXIT); unused while the GPU backends are quota-blocked.
 
-- **`tests/`** -- 166 pytest tests, no network. Run with `uv run pytest`.
+- **`tests/`** -- 178 pytest tests, no network. Run with `uv run pytest`.
 
 - **`scripts/`** -- helper scripts for operations (`pull_prod.sh`, `db_summary.py`, `check_server.sh`, `log_errors.sh`, `pair_details.py`). `pull_prod.sh` and `check_server.sh` target the Pi.
 
@@ -295,8 +295,18 @@ the unit failed rather than burying it in a log.
 |-----|------|-----|
 | 07:35 | `karb-job@sports` | `scan.py --category Sports --max-pairs 0` -- fetch all sports tickers into DB (no LLM) |
 | 08:00 | `karb-job@daily` | `fetch_yields.py` + `scan.py --from-db --filter "tennis,hockey,golf" --min-volume 200 --max-pairs 0` (rule screener + structural reuse; **no LLM**) + `evaluate.py` + `evaluate.py --mode high` |
-| 15:00, 20:00 | `karb-job@sweep` | `evaluate.py` + `evaluate.py --mode high` -- full re-evaluation sweeps against fresh orderbooks |
-| hourly at :30 | `karb-job@hot` | `evaluate.py --hot` (+ `--mode high`) -- re-check near-parity pairs only (latest tob_cost < 1.03) |
+| every 2h except 08:00 | `karb-job@sweep` | `evaluate.py` + `evaluate.py --mode high` -- full re-evaluation sweeps against fresh orderbooks |
+| every 15 min (:07/:22/:37/:52) | `karb-job@hot` | `evaluate.py --hot` (+ `--mode high`) -- re-check near-parity pairs only (latest tob_cost < 1.03) |
+
+Measured wall times on the Pi (`scripts/check_server.sh` reports these): sports
+~28 min, daily ~5 min, sweep ~5 min, hot ~30s. The sweep is what promotes a
+pair into the hot tier -- `--hot` filters on the *latest stored* `tob_cost`, so
+a pair drifting toward parity is invisible to the hot job until a sweep
+evaluates it. Sweep cadence, not hot cadence, bounds how long a new opportunity
+can sit unnoticed.
+
+Sweeps avoid 07:35-08:10, where the 28-minute sports fetch bulk-writes the same
+SQLite file (`busy_timeout` is 5s; a long write transaction can outlast it).
 
 A clean run touches `/var/lib/rpi-health/jobs/karb.<job>`. The Pi's dashboard
 watches the *age* of those files, which catches both a job that fails and a job
@@ -343,7 +353,7 @@ It does not touch production.
 ### Operations
 
 ```
-bash scripts/check_server.sh                    # commit, units, HTTP, receipts, disk
+bash scripts/check_server.sh                    # commit, units, HTTP, receipts, durations, disk
 bash scripts/pull_prod.sh                       # production DB into the working tree
 ssh mypi-remote 'sudo journalctl _UID=$(id -u podsvc) -f'
 ```
